@@ -245,9 +245,21 @@ $verify_consumer_token = $ts_tokens['verify_consumer_token'];
 $verify_secret_token = $ts_tokens['verify_secret_token'];
 $TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
+// Instantiate a new TelegramVerify object for handling Telegram verification.
+$verify = new TelegramVerify(
+    'https://meta.wikimedia.org/w/api.php',
+    $verify_consumer_token,
+    $verify_secret_token
+);
+
+// Retrieve verification results from the 'verifications' table.
+$lines = $verify->results();
+
+// Check if the user is logged in through OAuth.
+$user = $verify->checkLogin();
+
 $groups_file = __DIR__ . '/groups_list.inc';
 $groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
-
 if (empty($groups_list)) {
     die("Error: groups_list.inc file is empty or not found.");
 }
@@ -280,19 +292,6 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
     </html>";
     exit;
 }
-
-// Instantiate a new TelegramVerify object for handling Telegram verification.
-$verify = new TelegramVerify(
-    'https://meta.wikimedia.org/w/api.php',
-    $verify_consumer_token,
-    $verify_secret_token
-);
-
-// Retrieve verification results from the 'verifications' table.
-$lines = $verify->results();
-
-// Check if the user is logged in through OAuth.
-$user = $verify->checkLogin();
 
 // Get administrators of the chat
 $admins = $verify->getAdmins($TelegramVerifyToken, $lines, $channelId);
