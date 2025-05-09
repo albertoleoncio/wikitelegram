@@ -321,31 +321,31 @@ if (isset($_GET["auth_date"])) {
     // Unmute the Telegram user in the group chat, if they are not an admin.
     if (!in_array($user['username'], $admins)) {
         $verify->unmuteTelegramUser($authData, $TelegramVerifyToken, $channelId);
-    } else {
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser') {
-            $telegramUser = $_POST['telegramUser'];
-            $api = "https://api.telegram.org/bot$TelegramVerifyToken/getChatMember?chat_id=$channelId&user_id=" . urlencode($telegramUser);
-            $response = json_decode(file_get_contents($api), true);
-
-            if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
-                $stmt = $verify->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
-                $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
-                $stmt->execute();
-                $result = $stmt->get_result();
-                $userData = $result->fetch_assoc();
-                $stmt->close();
-
-                if ($userData) {
-                    echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
-                } else {
-                    echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no banco de dados.']);
-                }
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no grupo do Telegram.']);
-            }
-            exit;
-        }
     }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser' && in_array($user['username'], $admins)) {
+    $telegramUser = $_POST['telegramUser'];
+    $api = "https://api.telegram.org/bot$TelegramVerifyToken/getChatMember?chat_id=$channelId&user_id=" . urlencode($telegramUser);
+    $response = json_decode(file_get_contents($api), true);
+
+    if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
+        $stmt = $verify->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
+        $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $userData = $result->fetch_assoc();
+        $stmt->close();
+
+        if ($userData) {
+            echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no banco de dados.']);
+        }
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no grupo do Telegram.']);
+    }
+    exit;
 }
 
 ?><!DOCTYPE html>
