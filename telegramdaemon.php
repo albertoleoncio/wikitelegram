@@ -9,6 +9,10 @@ $ts_pw = posix_getpwuid(posix_getuid());
 $ts_tokens = parse_ini_file($ts_pw['dir'] . "/tokens.inc");
 $TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
+// Add a file to store the list of groups
+$groups_file = __DIR__ . '/groups_list.inc';
+$groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+
 function logMessage($type, $message) {
     $timestamp = date("Y-m-d H:i:s");
     echo "[$timestamp] [$type] $message\n";
@@ -26,7 +30,7 @@ while (true) {
 
     $params = [
         'timeout' => 10,
-        'allowed_updates' => '["chat_member","message"]', // Include "message" updates
+        'allowed_updates' => '["chat_member","message","my_chat_member"]', // Include "message" and "my_chat_member" updates
         'offset' => $offset
     ];
 
@@ -63,6 +67,34 @@ while (true) {
 
     foreach ($update as $event) {
         $offset = $event["update_id"];
+
+        // Handle my_chat_member updates
+        if (isset($event["my_chat_member"])) {
+            $chat_id = $event["my_chat_member"]["chat"]["id"];
+            $chat_type = $event["my_chat_member"]["chat"]["type"];
+            $new_status = $event["my_chat_member"]["new_chat_member"]["status"];
+
+            // Ignore private chats
+            if ($chat_type === "private") {
+                continue;
+            }
+
+            if ($new_status === "member" || $new_status === "administrator") {
+                // Add the group to the list if not already present
+                if (!in_array($chat_id, $groups_list)) {
+                    $groups_list[] = $chat_id;
+                    file_put_contents($groups_file, implode(PHP_EOL, $groups_list) . PHP_EOL);
+                    logMessage("INFO", "Added group ${chat_id} to groups list.");
+                }
+            } elseif ($new_status === "kicked" || $new_status === "left") {
+                // Remove the group from the list if present
+                if (in_array($chat_id, $groups_list)) {
+                    $groups_list = array_diff($groups_list, [$chat_id]);
+                    file_put_contents($groups_file, implode(PHP_EOL, $groups_list) . PHP_EOL);
+                    logMessage("INFO", "Removed group ${chat_id} from groups list.");
+                }
+            }
+        }
         
         // Check for messages from restricted users
         if (isset($event["message"])) {
@@ -88,13 +120,13 @@ while (true) {
 
         // Handle restriction updates
         if (isset($event["chat_member"]["new_chat_member"]) && $event["chat_member"]["new_chat_member"]["status"] == "restricted") {
-                $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
-                if (in_array($restricted_user_id, $restricted_users)) {
-                    // Remove the user from the restricted users file
-                    $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
-                    file_put_contents($restricted_users_file, implode(PHP_EOL, $restricted_users) . PHP_EOL);
-                    logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
-                            }
+            $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
+            if (in_array($restricted_user_id, $restricted_users)) {
+                // Remove the user from the restricted users file
+                $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
+                file_put_contents($restricted_users_file, implode(PHP_EOL, $restricted_users) . PHP_EOL);
+                logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
+            }
         }
 
         // Handle new chat members
@@ -134,7 +166,7 @@ while (true) {
                         logMessage("INFO", "User ${new_user} (${new_user_id}) already verified as ${w_id}.");
                         continue;
                     }
-                                }
+                }
 
             } catch (Exception $e) {
                 logMessage("ERROR", "Database connection error: " . $e->getMessage());

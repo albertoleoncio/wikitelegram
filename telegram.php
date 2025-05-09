@@ -26,9 +26,9 @@ class TelegramVerify extends WikiAphpiOAuth
         $ts_pw = posix_getpwuid(posix_getuid());
         $ts_mycnf = parse_ini_file($ts_pw['dir'] . "/replica.my.cnf");
         $this->mysqli = new mysqli(
-            'tools.db.svc.eqiad.wmflabs', 
-            $ts_mycnf['user'], 
-            $ts_mycnf['password'], 
+            'tools.db.svc.eqiad.wmflabs',
+            $ts_mycnf['user'],
+            $ts_mycnf['password'],
             $ts_mycnf['user']."__telegram"
         );
     }
@@ -36,9 +36,9 @@ class TelegramVerify extends WikiAphpiOAuth
     /**
      * Checks the authorization data received from Telegram.
      *
-     * This method verifies the authenticity of the data received from Telegram during user 
-     * authorization. It checks the integrity of the data using a hash and ensures that the 
-     * data is recent. If the data is valid, it is returned; otherwise, a 
+     * This method verifies the authenticity of the data received from Telegram during user
+     * authorization. It checks the integrity of the data using a hash and ensures that the
+     * data is recent. If the data is valid, it is returned; otherwise, a
      * ContentRetrievalException is thrown with a corresponding error message.
      *
      * @param array  $auth_data           The authorization data received from Telegram.
@@ -67,9 +67,9 @@ class TelegramVerify extends WikiAphpiOAuth
     /**
      * Retrieves results from the 'verifications' table.
      *
-     * This method performs a SQL SELECT query on the 'verifications' table to retrieve information 
-     * such as 't_id', 't_date', 't_username', 'w_username', and 'w_id'. The results are fetched 
-     * and returned as an array of rows. If there's an error in preparing or executing the SQL 
+     * This method performs a SQL SELECT query on the 'verifications' table to retrieve information
+     * such as 't_id', 't_date', 't_username', 'w_username', and 'w_id'. The results are fetched
+     * and returned as an array of rows. If there's an error in preparing or executing the SQL
      * query, a ContentRetrievalException is thrown.
      *
      * @throws ContentRetrievalException When there's an error executing the SQL query.
@@ -100,19 +100,20 @@ class TelegramVerify extends WikiAphpiOAuth
     /**
      * Retrieves the list of administrators from the Telegram group.
      *
-     * This method sends a request to the Telegram API to get the list of administrators in a 
+     * This method sends a request to the Telegram API to get the list of administrators in a
      * specific chat. It takes the Telegram verification token and the list of users as parameters.
      * The method returns an array of usernames of the administrators.
      *
      * @param string $TelegramVerifyToken The verification token provided by Telegram.
      * @param array  $lines               The list of users from the 'verifications' table.
+     * @param string $channelId           The ID of the Telegram channel.
      *
      * @return array An array of usernames of the administrators.
      */
-    public function getAdmins($TelegramVerifyToken, $lines)
+    public function getAdmins($TelegramVerifyToken, $lines, $channelId)
     {
         $admins = [];
-        $api = "https://api.telegram.org/bot" . $TelegramVerifyToken . "/getChatAdministrators?chat_id=-1001169425230";
+        $api = "https://api.telegram.org/bot" . $TelegramVerifyToken . "/getChatAdministrators?chat_id=" . $channelId;
         $response = file_get_contents($api);
         $data = json_decode($response, true);
         foreach ($data['result'] as $admin) {
@@ -129,10 +130,10 @@ class TelegramVerify extends WikiAphpiOAuth
      * Creates a new verification entry in the 'verifications' table.
      *
      * This method prepares and executes a SQL REPLACE statement to insert or update a verification
-     * entry in the 'verifications' table. It takes authentication data ($authData) and a Wiki 
-     * username ($wikiuser) as parameters. The 't_id', 't_date', 't_username', 'w_username', and 
-     * 'w_id' columns are updated with the corresponding values. If the operation is successful, 
-     * the method returns true. If there's an error in preparing the SQL statement, executing it, 
+     * entry in the 'verifications' table. It takes authentication data ($authData) and a Wiki
+     * username ($wikiuser) as parameters. The 't_id', 't_date', 't_username', 'w_username', and
+     * 'w_id' columns are updated with the corresponding values. If the operation is successful,
+     * the method returns true. If there's an error in preparing the SQL statement, executing it,
      * or if the row is not inserted, a relevant exception is thrown.
      *
      * @param array  $authData  Authentication data containing 'id', 'auth_date', and 'username' (optional).
@@ -181,22 +182,23 @@ class TelegramVerify extends WikiAphpiOAuth
 
     /**
      * Unmutes a Telegram user in a chat.
-     * 
+     *
      * This method sends a request to the Telegram API to unmute a user in a chat. It takes the
      * authentication data ($authData) and the Telegram verification token ($TelegramVerifyToken)
      * as parameters. The user is unmuted in the chat with the ID "-1001169425230". The user is
      * unmuted for 100 seconds and, then, it reverts to the default group permissions.
-     * 
+     *
      * @param array  $authData            Authentication data containing 'id', 'auth_date', and 'username' (optional).
      * @param string $TelegramVerifyToken The verification token provided by Telegram.
-     * 
+     * @param string $channelId           The ID of the Telegram channel.
+     *
      * @return array The response from the Telegram API as an associative array.
      */
-    public function unmuteTelegramUser($authData, $TelegramVerifyToken) {
+    public function unmuteTelegramUser($authData, $TelegramVerifyToken, $channelId) {
         $user_id = $authData['id'];
 
         $params = [
-            "chat_id" => "-1001169425230",
+            "chat_id" => $channelId,
             "user_id" => $user_id,
             "until_date" => time() + 100,
             "permissions" => [
@@ -240,6 +242,17 @@ $verify_consumer_token = $ts_tokens['verify_consumer_token'];
 $verify_secret_token = $ts_tokens['verify_secret_token'];
 $TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
+$groups_file = __DIR__ . '/groups_list.inc';
+$groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+
+if (empty($groups_list)) {
+    die("Error: groups_list.inc file is empty or not found.");
+}
+if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
+    $channelId = $_GET['channel'];
+} else {
+    die("Error: Invalid or missing channel ID.");
+}
 
 // Instantiate a new TelegramVerify object for handling Telegram verification.
 $verify = new TelegramVerify(
@@ -255,7 +268,7 @@ $lines = $verify->results();
 $user = $verify->checkLogin();
 
 // Get administrators of the chat
-$admins = $verify->getAdmins($TelegramVerifyToken, $lines);
+$admins = $verify->getAdmins($TelegramVerifyToken, $lines, $channelId);
 
 // Check if the "auth_date" parameter from Telegram is present in the GET request.
 // In this case, the user is at the second step of the verification process.
@@ -269,12 +282,33 @@ if (isset($_GET["auth_date"])) {
 
     // Unmute the Telegram user in the group chat, if they are not an admin.
     if (!in_array($user['username'], $admins)) {
-        $verify->unmuteTelegramUser($authData, $TelegramVerifyToken);
+        $verify->unmuteTelegramUser($authData, $TelegramVerifyToken, $channelId);
     }
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser') {
+    $telegramUser = $_POST['telegramUser'];
+    $api = "https://api.telegram.org/bot$TelegramVerifyToken/getChatMember?chat_id=$channelId&user_id=" . urlencode($telegramUser);
+    $response = json_decode(file_get_contents($api), true);
 
+    if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
+        $stmt = $verify->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
+        $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $userData = $result->fetch_assoc();
+        $stmt->close();
 
+        if ($userData) {
+            echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no banco de dados.']);
+        }
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no grupo do Telegram.']);
+    }
+    exit;
+}
 
 ?><!DOCTYPE html>
 <html lang="pt-BR">
@@ -284,11 +318,7 @@ if (isset($_GET["auth_date"])) {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link rel="stylesheet" href="./tpar/w3.css">
         <link rel="stylesheet" href="https://tools-static.wmflabs.org/cdnjs/ajax/libs/font-awesome/6.2.0/css/all.css">
-        <link rel="stylesheet" href="https://tools-static.wmflabs.org/cdnjs/ajax/libs/datatables/1.10.21/css/jquery.dataTables.min.css" />
-        <link rel="stylesheet" href="https://tools-static.wmflabs.org/cdnjs/ajax/libs/datatables.net-responsive-dt/2.4.1/responsive.dataTables.min.css" />
         <script src="https://tools-static.wmflabs.org/cdnjs/ajax/libs/jquery/3.7.0/jquery.min.js"></script>
-        <script src="https://tools-static.wmflabs.org/cdnjs/ajax/libs/datatables.net/2.1.1/jquery.dataTables.min.js"></script>
-        <script src="https://tools-static.wmflabs.org/cdnjs/ajax/libs/datatables.net-responsive/2.4.1/dataTables.responsive.min.js"></script>
         <style>
             .stepper-wrapper {
                 font-family: Arial;
@@ -390,11 +420,11 @@ if (isset($_GET["auth_date"])) {
                                 </div>
                             </div>
                             <hr>
-                            <svg xmlns="http://www.w3.org/2000/svg" width="150" 
+                            <svg xmlns="http://www.w3.org/2000/svg" width="150"
                             viewBox="0 0 20 20" height="150" style="margin: auto; width: auto;">
                                 <path fill="green" d="m7,14.17-4.17-4.17-1.41,1.41 5.58,5.58 12-12-1.41-1.41"></path>
                             </svg>
-                            <p>Olá <?=$user['username']?>! Sua verificação deu certo e seu nome 
+                            <p>Olá <?=$user['username']?>! Sua verificação deu certo e seu nome
                             foi inserido na tabela de usuários verificados. Obrigado!
                         <?php elseif($user): ?>
                             <div class="stepper-wrapper">
@@ -415,7 +445,7 @@ if (isset($_GET["auth_date"])) {
                             <p>Olá <?=$user['username']?>! Em seguida, autentique-se com sua
                             conta do Telegram usando o botão abaixo.</p>
                             <script
-                            async src="https://telegram.org/js/telegram-widget.js?22" 
+                            async src="https://telegram.org/js/telegram-widget.js?22"
                             data-auth-url="https://alberobot.toolforge.org/telegram.php"
                             data-telegram-login="WikiVerifyBot" data-size="large"></script>
                             <p>Uma nova tela será aberta, onde você fará login via Telegram.
@@ -443,9 +473,9 @@ if (isset($_GET["auth_date"])) {
                                 </div>
                             </div>
                             <hr>
-                            <p>Olá! Como primeiro passo, você precisa autenticar sua conta 
+                            <p>Olá! Como primeiro passo, você precisa autenticar sua conta
                             wiki usando o botão abaixo.</p>
-                            <button 
+                            <button
                             class="w3-button w3-white w3-border"
                             onclick="location.href='<?=$_SERVER['SCRIPT_NAME']?>?oauth=seek';"
                             >
@@ -463,7 +493,7 @@ if (isset($_GET["auth_date"])) {
                                 </svg> 
                             <br>Login</button>
                             <p>Após se autenticar na Wiki, alguns scripts serão carregador
-                            diretamente dos servidores do Telegram. Esteja ciente que, ao usar essa 
+                            diretamente dos servidores do Telegram. Esteja ciente que, ao usar essa
                             ferramenta, seus dados de navegação podem ser armazenados em servidores
                             de terceiros sem vínculo com a WMF.
                             </p>
@@ -471,37 +501,34 @@ if (isset($_GET["auth_date"])) {
                     </div>
                     <?php if(isset($user['username']) && in_array($user['username'], $admins)): ?>
                         <div class="w3-container w3-margin w3-padding-48 w3-card w3-small" id="main">
-                            <p style="color:red;">Painel administrativo. Se você está lendo essa mensagem, 
+                            <p style="color:red;">Painel administrativo. Se você está lendo essa mensagem,
                             você é um administrador do grupo do Telegram</p>
-                            <div class="loader"></div>
-                            <table id="myTable" class="display responsive" style="width:100%">
-                                <thead>
-                                    <tr>
-                                        <th>Conta Wiki</th>
-                                        <th>Conta Telegram</th>
-                                        <th>ID Telegram</th>
-                                        <th>Horário de verificação</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach ($lines as $line): ?>
-                                        <tr>
-                                            <td><?=$line['w_username']?></td>
-                                            <td><?=$line['t_username']?></td>
-                                            <td><?=$line['t_id']?></td>
-                                            <td><?=date('Y-m-d H:i:s', $line['t_date'])?></td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                            <form id="userCheckForm" method="POST">
+                                <label for="telegramUser">Informe o ID ou username do Telegram:</label>
+                                <input type="text" id="telegramUser" name="telegramUser" required>
+                                <button type="submit">Verificar</button>
+                            </form>
+                            <div id="userInfo" style="margin-top: 20px; display: none;">
+                                <h4>Informações do Usuário:</h4>
+                                <p><strong>Conta Wiki:</strong> <span id="wikiUsername"></span></p>
+                                <p><strong>ID Wiki:</strong> <span id="wikiUserId"></span></p>
+                            </div>
                             <script type="text/javascript">
-                                $(document).ready( function () {
-                                    $('.loader').hide();
-                                    $('#myTable').show();
-                                    $('#myTable').DataTable( {
-                                        responsive: true
-                                    } );
-                                } );
+                                $(document).ready(function () {
+                                    $('#userCheckForm').on('submit', function (e) {
+                                        e.preventDefault();
+                                        const telegramUser = $('#telegramUser').val();
+                                        $.post('telegram.php', { action: 'checkUser', telegramUser: telegramUser }, function (response) {
+                                            if (response.success) {
+                                                $('#wikiUsername').text(response.data.wikiUsername);
+                                                $('#wikiUserId').text(response.data.wikiUserId);
+                                                $('#userInfo').show();
+                                            } else {
+                                                alert(response.message);
+                                            }
+                                        }, 'json');
+                                    });
+                                });
                             </script>
                         </div>
                     <?php endif; ?>
