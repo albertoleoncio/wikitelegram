@@ -125,17 +125,11 @@ while (true) {
                 if (mysqli_num_rows($result) > 0) {
                     $row = mysqli_fetch_assoc($result);
                     $w_id = $row['w_id'];
-
                     if ($w_id != null) {
                         logMessage("INFO", "User ${new_user} (${new_user_id}) already verified as ${w_id}.");
                         continue;
                     }
-                } else {
-                    $query = "INSERT IGNORE INTO `verifications` (`t_id`, `t_username`) VALUES ('$new_user_id', '$new_user')";
-                    mysqli_query($con, $query);
-                    mysqli_close($con);
-                    logMessage("INFO", "User ${new_user} (${new_user_id}) added to database.");
-                }
+                                }
 
             } catch (Exception $e) {
                 logMessage("ERROR", "Database connection error: " . $e->getMessage());
