@@ -563,7 +563,7 @@ if (isset($_GET["auth_date"])) {
                                     $('#userCheckForm').on('submit', function (e) {
                                         e.preventDefault();
                                         const telegramUser = $('#telegramUser').val();
-                                        $.post('telegram.php', { action: 'checkUser', telegramUser: telegramUser }, function (response) {
+                                        $.post('', { action: 'checkUser', telegramUser: telegramUser }, function (response) {
                                             if (response.success) {
                                                 $('#wikiUsername').text(response.data.wikiUsername);
                                                 $('#wikiUserId').text(response.data.wikiUserId);
