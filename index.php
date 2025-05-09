@@ -490,7 +490,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             conta do Telegram usando o botão abaixo.</p>
                             <script
                             async src="https://telegram.org/js/telegram-widget.js?22"
-                            data-auth-url="https://wikitelegram.toolforge.org/"
+                            data-auth-url="https://wikitelegram.toolforge.org/index.php?channel=<?=$channelId?>"
                             data-telegram-login="WikiVerifyBot" data-size="large"></script>
                             <p>Uma nova tela será aberta, onde você fará login via Telegram.
                             Alguns dados poderão ser solicitados pelo próprio Telegram, tal
