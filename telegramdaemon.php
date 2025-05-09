@@ -1,4 +1,9 @@
 <?php
+// This script is designed to run as a daemon on Toolforge.
+if (php_sapi_name() !== 'cli') {
+    die("This script can only be run from the command line.");
+}
+
 require_once __DIR__ . '/WikiAphpi/main.php';
 $ts_pw = posix_getpwuid(posix_getuid());
 $ts_tokens = parse_ini_file($ts_pw['dir'] . "/tokens.inc");
