@@ -251,7 +251,31 @@ if (empty($groups_list)) {
 if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
     $channelId = $_GET['channel'];
 } else {
-    die("Error: Invalid or missing channel ID.");
+    echo "<html lang='pt-BR'>
+    <head>
+        <title>WikiVerifyBot - Error</title>
+        <meta charset='UTF-8'>
+        <meta name='viewport' content='width=device-width, initial-scale=1'>
+        <link rel='stylesheet' href='./w3.css'>
+        <link rel='stylesheet' href='https://tools-static.wmflabs.org/cdnjs/ajax/libs/font-awesome/6.2.0/css/all.css'>
+    </head>
+    <body>
+        <div class='w3-container' id='menu'>
+            <div class='w3-content' style='max-width:800px'>
+                <h5 class='w3-center w3-padding-48'><span class='w3-tag w3-wide'>WikiVerifyBot</span></h5>
+                <div class='w3-container w3-margin w3-padding-12 w3-card w3-center'>
+                    <p style='color:red;'>Error: Invalid or missing channel ID.</p>
+                    <form method='GET'>
+                        <label for='channel'>Please provide a valid channel ID:</label>
+                        <input type='text' id='channel' name='channel' required>
+                        <button type='submit'>Submit</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>";
+    exit;
 }
 
 // Instantiate a new TelegramVerify object for handling Telegram verification.
