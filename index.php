@@ -273,6 +273,18 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <link rel='stylesheet' href='./w3.css'>
         <link rel='stylesheet' href='https://tools-static.wmflabs.org/cdnjs/ajax/libs/font-awesome/6.2.0/css/all.css'>
+        <script>
+            // Check if channelId exists in localStorage and append it to the URL if not present
+            document.addEventListener('DOMContentLoaded', function () {
+                const urlParams = new URLSearchParams(window.location.search);
+                if (!urlParams.has('channel') && localStorage.getItem('channelId')) {
+                    const channelId = localStorage.getItem('channelId');
+                    urlParams.set('channel', channelId);
+                    localStorage.removeItem('channelId');
+                    window.location.search = urlParams.toString();
+                }
+            });
+        </script>
     </head>
     <body>
         <div class='w3-container' id='menu'>
@@ -423,6 +435,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 content: none;
             }
         </style>
+        <script>
+            // Save channelId to localStorage when the button is clicked
+            function saveChannelIdAndRedirect(channelId) {
+                localStorage.setItem('channelId', channelId);
+                location.href = `<?=$_SERVER['SCRIPT_NAME']?>?oauth=seek`;
+            }
+        </script>
     </head>
     <body>
         <div class="w3-container" id="menu">
@@ -503,7 +522,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             wiki usando o botão abaixo.</p>
                             <button
                             class="w3-button w3-white w3-border"
-                            onclick="location.href='<?=$_SERVER['SCRIPT_NAME']?>?oauth=seek';"
+                            onclick="saveChannelIdAndRedirect('<?=$channelId?>');"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" aria-label="Wikipedia"
                                 role="img" style="width: 30px;" viewBox="0 0 512 512">
