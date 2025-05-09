@@ -321,31 +321,31 @@ if (isset($_GET["auth_date"])) {
     // Unmute the Telegram user in the group chat, if they are not an admin.
     if (!in_array($user['username'], $admins)) {
         $verify->unmuteTelegramUser($authData, $TelegramVerifyToken, $channelId);
-    }
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser') {
-    $telegramUser = $_POST['telegramUser'];
-    $api = "https://api.telegram.org/bot$TelegramVerifyToken/getChatMember?chat_id=$channelId&user_id=" . urlencode($telegramUser);
-    $response = json_decode(file_get_contents($api), true);
-
-    if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
-        $stmt = $verify->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
-        $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $userData = $result->fetch_assoc();
-        $stmt->close();
-
-        if ($userData) {
-            echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no banco de dados.']);
-        }
     } else {
-        echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no grupo do Telegram.']);
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser') {
+            $telegramUser = $_POST['telegramUser'];
+            $api = "https://api.telegram.org/bot$TelegramVerifyToken/getChatMember?chat_id=$channelId&user_id=" . urlencode($telegramUser);
+            $response = json_decode(file_get_contents($api), true);
+
+            if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
+                $stmt = $verify->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
+                $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                $userData = $result->fetch_assoc();
+                $stmt->close();
+
+                if ($userData) {
+                    echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no banco de dados.']);
+                }
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no grupo do Telegram.']);
+            }
+            exit;
+        }
     }
-    exit;
 }
 
 ?><!DOCTYPE html>
@@ -491,7 +491,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             conta do Telegram usando o botão abaixo.</p>
                             <script
                             async src="https://telegram.org/js/telegram-widget.js?22"
-                            data-auth-url="https://wikitelegram.toolforge.org/index.php?channel=<?=$channelId?>"
+                            data-auth-url="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>"
                             data-telegram-login="WikiVerifyBot" data-size="large"></script>
                             <p>Uma nova tela será aberta, onde você fará login via Telegram.
                             Alguns dados poderão ser solicitados pelo próprio Telegram, tal
@@ -548,7 +548,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <div class="w3-container w3-margin w3-padding-48 w3-card w3-small" id="main">
                             <p style="color:red;">Painel administrativo. Se você está lendo essa mensagem,
                             você é um administrador do grupo do Telegram</p>
-                            <form id="userCheckForm" method="POST">
+                            <form id="userCheckForm" method="POST" action="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>">
                                 <label for="telegramUser">Informe o ID ou username do Telegram:</label>
                                 <input type="text" id="telegramUser" name="telegramUser" required>
                                 <button type="submit">Verificar</button>
