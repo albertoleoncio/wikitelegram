@@ -1,5 +1,4 @@
 <?php
-require_once './bin/globals.php';
 require_once 'WikiAphpi/main.php';
 
 /**
@@ -206,6 +205,12 @@ class TelegramVerify extends WikiAphpiOAuth
     }
 
 }
+
+$ts_pw = posix_getpwuid(posix_getuid());
+$ts_tokens = parse_ini_file($ts_pw['dir'] . "/tokens.inc");
+$verify_consumer_token = $ts_tokens['verify_consumer_token'];
+$verify_secret_token = $ts_tokens['verify_secret_token'];
+$TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
 $admins = [
     'Albertoleoncio',

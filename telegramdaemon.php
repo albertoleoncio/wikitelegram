@@ -1,6 +1,8 @@
 <?php
-require_once __DIR__ . '/bin/globals.php';
 require_once __DIR__ . '/WikiAphpi/main.php';
+$ts_pw = posix_getpwuid(posix_getuid());
+$ts_tokens = parse_ini_file($ts_pw['dir'] . "/tokens.inc");
+$TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
 function logMessage($type, $message) {
     $timestamp = date("Y-m-d H:i:s");
