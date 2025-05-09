@@ -272,7 +272,6 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
         <meta charset='UTF-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <link rel='stylesheet' href='./w3.css'>
-        <link rel='stylesheet' href='https://tools-static.wmflabs.org/cdnjs/ajax/libs/font-awesome/6.2.0/css/all.css'>
         <script>
             // Check if channelId exists in localStorage and append it to the URL if not present
             document.addEventListener('DOMContentLoaded', function () {
@@ -491,7 +490,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             conta do Telegram usando o botão abaixo.</p>
                             <script
                             async src="https://telegram.org/js/telegram-widget.js?22"
-                            data-auth-url="https://alberobot.toolforge.org/telegram.php"
+                            data-auth-url="https://wikitelegram.toolforge.org/"
                             data-telegram-login="WikiVerifyBot" data-size="large"></script>
                             <p>Uma nova tela será aberta, onde você fará login via Telegram.
                             Alguns dados poderão ser solicitados pelo próprio Telegram, tal
