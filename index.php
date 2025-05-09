@@ -54,6 +54,7 @@ class TelegramVerify extends WikiAphpiOAuth
     public function checkTelegramAuthorization($auth_data, $TelegramVerifyToken) {
         $check_hash = $auth_data['hash'];
         unset($auth_data['hash']);
+        unset($auth_data['channel']);
         ksort($auth_data);
         $data_check_string = urldecode(http_build_query($auth_data, "", "\n"));
         $secret_key = hash('sha256', $TelegramVerifyToken, true);
