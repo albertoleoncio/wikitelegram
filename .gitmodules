@@ -1,0 +1,3 @@
+[submodule "WikiAphpi"]
+	path = WikiAphpi
+	url = https://github.com/albertoleoncio/WikiAphpi.git
