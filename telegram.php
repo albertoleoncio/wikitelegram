@@ -98,6 +98,34 @@ class TelegramVerify extends WikiAphpiOAuth
     }
 
     /**
+     * Retrieves the list of administrators from the Telegram group.
+     *
+     * This method sends a request to the Telegram API to get the list of administrators in a 
+     * specific chat. It takes the Telegram verification token and the list of users as parameters.
+     * The method returns an array of usernames of the administrators.
+     *
+     * @param string $TelegramVerifyToken The verification token provided by Telegram.
+     * @param array  $lines               The list of users from the 'verifications' table.
+     *
+     * @return array An array of usernames of the administrators.
+     */
+    public function getAdmins($TelegramVerifyToken, $lines)
+    {
+        $admins = [];
+        $api = "https://api.telegram.org/bot" . $TelegramVerifyToken . "/getChatAdministrators?chat_id=-1001169425230";
+        $response = file_get_contents($api);
+        $data = json_decode($response, true);
+        foreach ($data['result'] as $admin) {
+            foreach ($lines as $line) {
+                if ($admin['user']['id'] == $line['t_id']) {
+                    $admins[] = $line['w_username'];
+                }
+            }
+        }
+        return $admins;
+    }
+
+    /**
      * Creates a new verification entry in the 'verifications' table.
      *
      * This method prepares and executes a SQL REPLACE statement to insert or update a verification
@@ -212,16 +240,6 @@ $verify_consumer_token = $ts_tokens['verify_consumer_token'];
 $verify_secret_token = $ts_tokens['verify_secret_token'];
 $TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
-$admins = [
-    'Albertoleoncio',
-    'Rkieferbaum',
-    'DarwIn',
-    'Sturm',
-    'GoEThe',
-    'Chicocvenancio',
-    'Teles',
-    'Everton137'
-];
 
 // Instantiate a new TelegramVerify object for handling Telegram verification.
 $verify = new TelegramVerify(
@@ -236,16 +254,21 @@ $lines = $verify->results();
 // Check if the user is logged in through OAuth.
 $user = $verify->checkLogin();
 
+// Get administrators of the chat
+$admins = $verify->getAdmins($TelegramVerifyToken, $lines);
+
 // Check if the "auth_date" parameter from Telegram is present in the GET request.
+// In this case, the user is at the second step of the verification process.
 if (isset($_GET["auth_date"])) {
+
     // Retrieve and verify Telegram authorization data from the GET parameters.
     $authData = $verify->checkTelegramAuthorization($_GET, $TelegramVerifyToken);
 
     // Add a new verification entry for the authenticated user.
     $verify->newVerification($authData, $user['username']);
 
+    // Unmute the Telegram user in the group chat, if they are not an admin.
     if (!in_array($user['username'], $admins)) {
-        // Unmute the Telegram user in the group chat.
         $verify->unmuteTelegramUser($authData, $TelegramVerifyToken);
     }
 }
