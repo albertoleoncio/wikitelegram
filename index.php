@@ -325,8 +325,9 @@ if (isset($_GET["auth_date"])) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser' && in_array($user['username'], $admins)) {
-    $telegramUser = $_POST['telegramUser'];
-    $api = "https://api.telegram.org/bot$TelegramVerifyToken/getChatMember?chat_id=$channelId&user_id=" . urlencode($telegramUser);
+    $telegramUser = trim($_POST['telegramUser']); // Trim whitespace
+    $telegramUser = is_numeric($telegramUser) ? $telegramUser : urlencode($telegramUser);
+    $api = "https://api.telegram.org/bot${TelegramVerifyToken}/getChatMember?chat_id=${channelId}&user_id=${telegramUser}";
     $response = json_decode(file_get_contents($api), true);
 
     if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
