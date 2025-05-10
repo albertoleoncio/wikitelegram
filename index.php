@@ -326,7 +326,25 @@ if (isset($_GET["auth_date"])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser' && in_array($user['username'], $admins)) {
     $telegramUser = trim($_POST['telegramUser']); // Trim whitespace
-    $telegramUser = is_numeric($telegramUser) ? $telegramUser : urlencode($telegramUser);
+
+    if (!is_numeric($telegramUser)) {
+        // Check the database for the username and retrieve the Telegram ID
+        $stmt = $verify->mysqli->prepare("SELECT t_id FROM verifications WHERE t_username = ?");
+        $stmt->bind_param('s', $telegramUser);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result->fetch_assoc();
+        $stmt->close();
+
+        if ($row) {
+            $telegramUser = $row['t_id']; // Use the Telegram ID from the database
+        } else {
+            // Handle the case where the username is not found in the database
+            echo json_encode(['success' => false, 'message' => 'Username not found in the database.']);
+            exit;
+        }
+    }
+
     $api = "https://api.telegram.org/bot${TelegramVerifyToken}/getChatMember?chat_id=${channelId}&user_id=${telegramUser}";
     $response = json_decode(file_get_contents($api), true);
 
@@ -341,10 +359,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         if ($userData) {
             echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
         } else {
-            echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no banco de dados.']);
+            echo json_encode(['success' => false, 'message' => 'User not found in the database.']);
         }
     } else {
-        echo json_encode(['success' => false, 'message' => 'Usuário não encontrado no grupo do Telegram.']);
+        echo json_encode(['success' => false, 'message' => 'User not found in the Telegram group.']);
     }
     exit;
 }
