@@ -548,7 +548,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             }
 
             .dropdown-option {
-                padding: 10px;
+                padding: 2px;
                 display: flex;
                 align-items: center;
                 cursor: pointer;
@@ -594,7 +594,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         </script>
     </head>
     <body>
-        <div class="w3-container" id="menu">
+        <div class="w3-container">
             <div class="w3-content" style="max-width:800px">
                 <h5 class="w3-center w3-padding-48"><span class="w3-tag w3-wide">WikiVerifyBot</span></h5>
                 <div class="w3-row-padding w3-center w3-padding-8 w3-margin-top">
@@ -602,7 +602,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <?php if(isset($channels) && !empty($channels)): ?>
                             <!-- Step 0: Channel Selection -->
                             <div class='loader' id='loader'></div>
-                            <div id='menu'>
+                            <div id='menu' class="w3-section">
                                 <form method='GET'>
                                     <label for='channel'>Please select a channel:</label>
                                     <div class='custom-dropdown'>
