@@ -238,6 +238,64 @@ class TelegramVerify extends WikiAphpiOAuth
         return json_decode($response, true);
     }
 
+    /**
+     * Handles the verification of a Telegram user.
+     *
+     * This method processes the verification of a Telegram user by checking their username or ID
+     * against the database and the Telegram group. It returns the corresponding wiki user details
+     * if the verification is successful.
+     *
+     * @param string $telegramUser The Telegram username or ID to verify.
+     * @param string $telegramVerifyToken The Telegram bot token for API requests.
+     * @param string $channelId The Telegram channel ID.
+     *
+     * @return array An associative array containing the verification result and user data.
+     */
+    public function verifyTelegramUser($telegramUser, $telegramVerifyToken, $channelId) {
+        $telegramUser = trim($telegramUser); // Trim whitespace
+        $result = ['success' => false, 'message' => ''];
+
+        if (!is_numeric($telegramUser)) {
+            // Check the database for the username and retrieve the Telegram ID
+            $stmt = $this->mysqli->prepare("SELECT t_id FROM verifications WHERE t_username = ?");
+            $stmt->bind_param('s', $telegramUser);
+            $stmt->execute();
+            $dbResult = $stmt->get_result();
+            $row = $dbResult->fetch_assoc();
+            $stmt->close();
+
+            if ($row) {
+                $telegramUser = $row['t_id']; // Use the Telegram ID from the database
+            } else {
+                $result['message'] = 'Username not found in the database.';
+                return $result;
+            }
+        }
+
+        $api = "https://api.telegram.org/bot${telegramVerifyToken}/getChatMember?chat_id=${channelId}&user_id=${telegramUser}";
+        $response = json_decode(file_get_contents($api), true);
+
+        if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
+            $stmt = $this->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
+            $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
+            $stmt->execute();
+            $dbResult = $stmt->get_result();
+            $userData = $dbResult->fetch_assoc();
+            $stmt->close();
+
+            if ($userData) {
+                $result['success'] = true;
+                $result['data'] = ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']];
+            } else {
+                $result['message'] = 'User not found in the database.';
+            }
+        } else {
+            $result['message'] = 'User not found in the Telegram group.';
+        }
+
+        return $result;
+    }
+
 }
 
 $ts_pw = posix_getpwuid(posix_getuid());
@@ -326,43 +384,12 @@ if (isset($_GET["auth_date"])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser' && in_array($user['username'], $admins)) {
     $telegramUser = trim($_POST['telegramUser']); // Trim whitespace
+    $verificationResult = $verify->verifyTelegramUser($telegramUser, $TelegramVerifyToken, $channelId);
 
-    if (!is_numeric($telegramUser)) {
-        // Check the database for the username and retrieve the Telegram ID
-        $stmt = $verify->mysqli->prepare("SELECT t_id FROM verifications WHERE t_username = ?");
-        $stmt->bind_param('s', $telegramUser);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $row = $result->fetch_assoc();
-        $stmt->close();
-
-        if ($row) {
-            $telegramUser = $row['t_id']; // Use the Telegram ID from the database
-        } else {
-            // Handle the case where the username is not found in the database
-            echo json_encode(['success' => false, 'message' => 'Username not found in the database.']);
-            exit;
-        }
-    }
-
-    $api = "https://api.telegram.org/bot${TelegramVerifyToken}/getChatMember?chat_id=${channelId}&user_id=${telegramUser}";
-    $response = json_decode(file_get_contents($api), true);
-
-    if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
-        $stmt = $verify->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
-        $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        $userData = $result->fetch_assoc();
-        $stmt->close();
-
-        if ($userData) {
-            echo json_encode(['success' => true, 'data' => ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']]]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'User not found in the database.']);
-        }
+    if ($verificationResult['success']) {
+        echo json_encode(['success' => true, 'data' => $verificationResult['data']]);
     } else {
-        echo json_encode(['success' => false, 'message' => 'User not found in the Telegram group.']);
+        echo json_encode(['success' => false, 'message' => $verificationResult['message']]);
     }
     exit;
 }
