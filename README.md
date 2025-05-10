@@ -1,5 +1,8 @@
 # Telegram Verification Bot
 
+> [!NOTE]
+> This page describes the bot's source code and how to set it up in a different environment. For usage instructions of the bot itself, see [USAGE.md](USAGE.md).
+
 This repository contains a Telegram bot designed to handle user verification and group management. The bot integrates with the MediaWiki API and uses OAuth for authentication. It is built to run on Toolforge and provides various functionalities, including user verification, group management, and restricted user handling.
 
 ## Features
