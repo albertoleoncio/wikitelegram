@@ -225,5 +225,3 @@ while (true) {
     // Delay for a fifth of a second
     usleep(200000); // 200,000 microseconds = 0.2 seconds
 }
-
-// toolforge jobs run telegramdaemon --command "php public_html/telegramdaemon.php" --image php8.2 --continuous
