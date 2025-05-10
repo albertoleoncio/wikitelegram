@@ -356,74 +356,6 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
     if (empty($channels)) {
         die("Error: Unable to retrieve channel information.");
     }
-    echo "<html lang='en'>
-    <head>
-        <title>WikiVerifyBot - Error</title>
-        <meta charset='UTF-8'>
-        <meta name='viewport' content='width=device-width, initial-scale=1'>
-        <link rel='stylesheet' href='./w3.css'>
-        <style>
-            .loader {
-                border: 16px solid #f3f3f3;
-                border-radius: 50%;
-                border-top: 16px solid #000000;
-                width: 120px;
-                height: 120px;
-                margin: auto;
-                animation: spin 2s linear infinite;
-            }
-        
-            @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-            }
-
-            #menu {
-                display: none;
-            }
-        </style>
-    </head>
-    <body>
-        <div class='w3-container'>
-            <div class='w3-content' style='max-width:800px'>
-                <h5 class='w3-center w3-padding-48'><span class='w3-tag w3-wide'>WikiVerifyBot</span></h5>
-                <div class='w3-container w3-margin w3-padding-12 w3-card w3-center'>
-                    <div class='loader' id='loader'></div>
-                    <div id='menu'>
-                        <form method='GET'>
-                            <label for='channel'>Please select a channel:</label>
-                            <select id='channel' name='channel' required>";
-                                foreach ($channels as $channel) {
-                                    echo "<option value='".htmlspecialchars($channel['id'])."'>";
-                                        if ($channel['photo']) {
-                                            echo "<img src='data:image/jpeg;base64,".htmlspecialchars($channel['photo'])."' alt='Channel Image' style='width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;'>";
-                                        }
-                                        echo htmlspecialchars($channel['name']);
-                                    echo "</option>";
-                                }
-                            echo "</select>
-                            <button type='submit'>Submit</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <script>
-            // Check for channel ID and update the URL if necessary
-            const urlParams = new URLSearchParams(window.location.search);
-            if (!urlParams.has('channel') && localStorage.getItem('channelId')) {
-                const channelId = localStorage.getItem('channelId');
-                urlParams.set('channel', channelId);
-                localStorage.removeItem('channelId');
-                window.location.search = urlParams.toString();
-            } else {
-                document.getElementById('loader').style.display = 'none';
-                document.getElementById('menu').style.display = 'block';
-            }
-        </script>
-    </body>
-    </html>";
-    exit;
 }
 
 // Get administrators of the chat
@@ -543,8 +475,94 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             .stepper-item:last-child::after {
                 content: none;
             }
+
+            .loader {
+                border: 16px solid #f3f3f3;
+                border-radius: 50%;
+                border-top: 16px solid #000000;
+                width: 120px;
+                height: 120px;
+                margin: auto;
+                animation: spin 2s linear infinite;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            #menu {
+                display: none;
+            }
+
+            .custom-dropdown {
+                position: relative;
+                display: inline-block;
+                width: 300px;
+            }
+
+            .dropdown-container {
+                position: relative;
+                cursor: pointer;
+            }
+
+            .dropdown-selected {
+                padding: 10px;
+                border: 1px solid #ccc;
+                background-color: #fff;
+                border-radius: 4px;
+            }
+
+            .dropdown-options {
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                border: 1px solid #ccc;
+                background-color: #fff;
+                z-index: 1000;
+                max-height: 200px;
+                overflow-y: auto;
+            }
+
+            .dropdown-option {
+                padding: 10px;
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+            }
+
+            .dropdown-option:hover {
+                background-color: #f0f0f0;
+            }
         </style>
         <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const dropdown = document.querySelector('.dropdown-container');
+                const selected = document.querySelector('.dropdown-selected');
+                const options = document.querySelector('.dropdown-options');
+                const hiddenInput = document.querySelector('#channel');
+
+                dropdown.addEventListener('click', function () {
+                    options.style.display = options.style.display === 'block' ? 'none' : 'block';
+                });
+
+                options.addEventListener('click', function (e) {
+                    if (e.target.classList.contains('dropdown-option')) {
+                        const value = e.target.getAttribute('data-value');
+                        const text = e.target.textContent.trim();
+                        hiddenInput.value = value;
+                        selected.textContent = text;
+                        options.style.display = 'none';
+                    }
+                });
+
+                document.addEventListener('click', function (e) {
+                    if (!dropdown.contains(e.target)) {
+                        options.style.display = 'none';
+                    }
+                });
+            });
+
             // Save channelId to localStorage when the button is clicked
             function saveChannelIdAndRedirect(channelId) {
                 localStorage.setItem('channelId', channelId);
@@ -558,7 +576,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <h5 class="w3-center w3-padding-48"><span class="w3-tag w3-wide">WikiVerifyBot</span></h5>
                 <div class="w3-row-padding w3-center w3-padding-8 w3-margin-top">
                     <div class="w3-container w3-margin w3-padding-12 w3-card w3-center">
-                        <?php if(isset($authData)): ?>
+                        <?php if(isset($channels) && !empty($channels)): ?>
+                            <!-- Step 0: Channel Selection -->
+                            <div class='loader' id='loader'></div>
+                            <div id='menu'>
+                                <form method='GET'>
+                                    <label for='channel'>Please select a channel:</label>
+                                    <div class='custom-dropdown'>
+                                        <div class='dropdown-container'>
+                                            <input type='hidden' id='channel' name='channel' required>
+                                            <div class='dropdown-selected'>Select a channel</div>
+                                            <div class='dropdown-options'>
+                                                <?php foreach ($channels as $channel): ?>
+                                                    <div class='dropdown-option' data-value='<?php echo htmlspecialchars($channel['id']); ?>'>
+                                                        <?php if ($channel['photo']): ?>
+                                                            <img src='data:image/jpeg;base64,<?php echo $channel['photo']; ?>' alt='Channel' style='width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;'>
+                                                        <?php endif; ?>
+                                                        <?php echo htmlspecialchars($channel['name']); ?>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type='submit'>Submit</button>
+                                </form>
+                            </div>
+                            <script>
+                                // Check for channel ID and update the URL if necessary
+                                const urlParams = new URLSearchParams(window.location.search);
+                                if (!urlParams.has('channel') && localStorage.getItem('channelId')) {
+                                    const channelId = localStorage.getItem('channelId');
+                                    urlParams.set('channel', channelId);
+                                    localStorage.removeItem('channelId');
+                                    window.location.search = urlParams.toString();
+                                } else {
+                                    document.getElementById('loader').style.display = 'none';
+                                    document.getElementById('menu').style.display = 'block';
+                                }
+                            </script>
+                        <?php elseif(isset($authData)): ?>
+                            <!-- Step 3: Verification Success -->
                             <div class="stepper-wrapper">
                                 <div class="stepper-item completed">
                                     <div class="step-counter"><i class="fa-brands fa-wikipedia-w" style="color: white;"></i></div>
@@ -581,6 +638,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <p>Hello <?=$user['username']?>! Your verification was successful and your name
                             has been added to the verified users table. Thank you!
                         <?php elseif($user): ?>
+                            <!-- Step 2: Telegram Authentication -->
                             <div class="stepper-wrapper">
                                 <div class="stepper-item completed">
                                     <div class="step-counter"><i class="fa-brands fa-wikipedia-w" style="color: white;"></i></div>
@@ -612,6 +670,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             this page in a different browser or in an incognito tab.
                             </p>
                         <?php else: ?>
+                            <!-- Step 1: Wikimedia Authentication -->
                             <div class="stepper-wrapper">
                                 <div class="stepper-item active">
                                     <div class="step-counter"><i class="fa-brands fa-wikipedia-w"></i></div>
@@ -641,6 +700,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <?php endif; ?>
                     </div>
                     <?php if(isset($user['username']) && in_array($user['username'], $admins)): ?>
+                        <!-- Admin Panel -->
                         <div class="w3-container w3-margin w3-padding-48 w3-card w3-small" id="main">
                             <p style="color:red;">Administrative panel. If you are reading this message,
                             you are an administrator of the Telegram group</p>
