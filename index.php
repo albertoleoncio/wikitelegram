@@ -722,7 +722,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             </p>
                         <?php endif; ?>
                     </div>
-                    <?php if(isset($user['username']) && in_array($user['username'], $admins)): ?>
+                    <?php if(isset($user['username']) && isset($admins) && in_array($user['username'], $admins)): ?>
                         <!-- Admin Panel -->
                         <div class="w3-container w3-margin w3-padding-48 w3-card w3-small" id="main">
                             <p style="color:red;">Administrative panel. If you are reading this message,
