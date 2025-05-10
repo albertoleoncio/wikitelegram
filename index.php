@@ -272,6 +272,7 @@ class TelegramVerify extends WikiAphpiOAuth
             }
         }
 
+        // The step is important to avoid admins to verify users from other groups
         $api = "https://api.telegram.org/bot${telegramVerifyToken}/getChatMember?chat_id=${channelId}&user_id=${telegramUser}";
         $response = json_decode(file_get_contents($api), true);
 
@@ -325,26 +326,48 @@ if (empty($groups_list)) {
 if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
     $channelId = $_GET['channel'];
 } else {
-    echo "<html lang='pt-BR'>
+    echo "<html lang='en'>
     <head>
         <title>WikiVerifyBot - Error</title>
         <meta charset='UTF-8'>
         <meta name='viewport' content='width=device-width, initial-scale=1'>
         <link rel='stylesheet' href='./w3.css'>
-        <script>
-            // Check if channelId exists in localStorage and append it to the URL if not present
-            document.addEventListener('DOMContentLoaded', function () {
-                const urlParams = new URLSearchParams(window.location.search);
-                if (!urlParams.has('channel') && localStorage.getItem('channelId')) {
-                    const channelId = localStorage.getItem('channelId');
-                    urlParams.set('channel', channelId);
-                    localStorage.removeItem('channelId');
-                    window.location.search = urlParams.toString();
-                }
-            });
-        </script>
+        <style>
+            .loader {
+                border: 16px solid #f3f3f3;
+                border-radius: 50%;
+                border-top: 16px solid #000000;
+                width: 120px;
+                height: 120px;
+                margin: auto;
+                animation: spin 2s linear infinite;
+            }
+        
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+
+            #menu {
+                display: none;
+            }
+        </style>
     </head>
     <body>
+        <div class='loader'></div>
+        <script>
+            // Check for channel ID and update the URL if necessary
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!urlParams.has('channel') && localStorage.getItem('channelId')) {
+                const channelId = localStorage.getItem('channelId');
+                urlParams.set('channel', channelId);
+                localStorage.removeItem('channelId');
+                window.location.search = urlParams.toString();
+            } else {
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('menu').style.display = 'block';
+            }
+        </script>
         <div class='w3-container' id='menu'>
             <div class='w3-content' style='max-width:800px'>
                 <h5 class='w3-center w3-padding-48'><span class='w3-tag w3-wide'>WikiVerifyBot</span></h5>
@@ -382,10 +405,10 @@ if (isset($_GET["auth_date"])) {
     }
 }
 
+// Small API to check an user in the group with a wiki username
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser' && in_array($user['username'], $admins)) {
     $telegramUser = trim($_POST['telegramUser']); // Trim whitespace
     $verificationResult = $verify->verifyTelegramUser($telegramUser, $TelegramVerifyToken, $channelId);
-
     if ($verificationResult['success']) {
         echo json_encode(['success' => true, 'data' => $verificationResult['data']]);
     } else {
@@ -395,7 +418,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 }
 
 ?><!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
     <head>
         <title>WikiVerifyBot</title>
         <meta charset="UTF-8">
@@ -499,15 +522,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <div class="stepper-wrapper">
                                 <div class="stepper-item completed">
                                     <div class="step-counter"><i class="fa-brands fa-wikipedia-w" style="color: white;"></i></div>
-                                    <div class="step-name">Autenticação<br>Wikipédia</div>
+                                    <div class="step-name">Authentication<br>Wikimedia</div>
                                 </div>
                                 <div class="stepper-item completed">
                                     <div class="step-counter"><i class="fa-regular fa-paper-plane" style="color: white;"></i></div>
-                                    <div class="step-name">Autenticação<br>Telegram</div>
+                                    <div class="step-name">Authentication<br>Telegram</div>
                                 </div>
                                 <div class="stepper-item completed">
                                     <div class="step-counter"><i class="fa-solid fa-check" style="color: white;"></i></div>
-                                    <div class="step-name">Concluído</div>
+                                    <div class="step-name">Completed</div>
                                 </div>
                             </div>
                             <hr>
@@ -515,62 +538,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             viewBox="0 0 20 20" height="150" style="margin: auto; width: auto;">
                                 <path fill="green" d="m7,14.17-4.17-4.17-1.41,1.41 5.58,5.58 12-12-1.41-1.41"></path>
                             </svg>
-                            <p>Olá <?=$user['username']?>! Sua verificação deu certo e seu nome
-                            foi inserido na tabela de usuários verificados. Obrigado!
+                            <p>Hello <?=$user['username']?>! Your verification was successful and your name
+                            has been added to the verified users table. Thank you!
                         <?php elseif($user): ?>
                             <div class="stepper-wrapper">
                                 <div class="stepper-item completed">
                                     <div class="step-counter"><i class="fa-brands fa-wikipedia-w" style="color: white;"></i></div>
-                                    <div class="step-name">Autenticação<br>Wikipédia</div>
+                                    <div class="step-name">Authentication<br>Wikimedia</div>
                                 </div>
                                 <div class="stepper-item active">
                                     <div class="step-counter"><i class="fa-regular fa-paper-plane"></i></div>
-                                    <div class="step-name">Autenticação<br>Telegram</div>
+                                    <div class="step-name">Authentication<br>Telegram</div>
                                 </div>
                                 <div class="stepper-item">
                                     <div class="step-counter"><i class="fa-solid fa-check"></i></div>
-                                    <div class="step-name">Concluído</div>
+                                    <div class="step-name">Completed</div>
                                 </div>
                             </div>
                             <hr>
-                            <p>Olá <?=$user['username']?>! Em seguida, autentique-se com sua
-                            conta do Telegram usando o botão abaixo.</p>
+                            <p>Hello <?=$user['username']?>! Next, authenticate with your
+                            Telegram account using the button below.</p>
                             <script
                             async src="https://telegram.org/js/telegram-widget.js?22"
                             data-auth-url="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>"
                             data-telegram-login="WikiVerifyBot" data-size="large"></script>
-                            <p>Uma nova tela será aberta, onde você fará login via Telegram.
-                            Alguns dados poderão ser solicitados pelo próprio Telegram, tal
-                            como um número de telefone, mas não teremos acesso a nenhuma
-                            informação sua exceto pelo seu nome e número de usuário na
-                            plataforma.
+                            <p>A new screen will open where you will log in via Telegram.
+                            Some data may be requested by Telegram itself, such
+                            as a phone number, but we will not have access to any
+                            information about you except for your name and user number on the
+                            platform.
                             </p>
-                            <p>Caso o botão azul não esteja sendo exibido acima, tente abrir
-                            essa página em um navegador diferente ou em uma aba anônima.
+                            <p>If the blue button is not displayed above, try opening
+                            this page in a different browser or in an incognito tab.
                             </p>
                         <?php else: ?>
                             <div class="stepper-wrapper">
                                 <div class="stepper-item active">
                                     <div class="step-counter"><i class="fa-brands fa-wikipedia-w"></i></div>
-                                    <div class="step-name">Autenticação<br>Wikipédia</div>
+                                    <div class="step-name">Authentication<br>Wikimedia</div>
                                 </div>
                                 <div class="stepper-item">
                                     <div class="step-counter"><i class="fa-regular fa-paper-plane"></i></div>
-                                    <div class="step-name">Autenticação<br>Telegram</div>
+                                    <div class="step-name">Authentication<br>Telegram</div>
                                 </div>
                                 <div class="stepper-item">
                                     <div class="step-counter"><i class="fa-solid fa-check"></i></div>
-                                    <div class="step-name">Concluído</div>
+                                    <div class="step-name">Completed</div>
                                 </div>
                             </div>
                             <hr>
-                            <p>Olá! Como primeiro passo, você precisa autenticar sua conta
-                            wiki usando o botão abaixo.</p>
+                            <p>Hello! As the first step, you need to authenticate your wiki account using the button below.</p>
                             <button
                             class="w3-button w3-white w3-border"
                             onclick="saveChannelIdAndRedirect('<?=$channelId?>');"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" aria-label="Wikipedia"
+                                <svg xmlns="http://www.w3.org/2000/svg" aria-label="Wikimedia"
                                 role="img" style="width: 30px;" viewBox="0 0 512 512">
                                     <rect width="512" height="512" rx="15%" fill="#fff"/>
                                     <path d="m65 152v8c0 2 1 3 4 3 20 1 20 5 28 23l90 196c7 
@@ -583,26 +605,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     75-3-1-76-167c-8-17 2-16 18-17 3 0 3-1 3-3v-7l-1-1z"/>
                                 </svg> 
                             <br>Login</button>
-                            <p>Após se autenticar na Wiki, alguns scripts serão carregador
-                            diretamente dos servidores do Telegram. Esteja ciente que, ao usar essa
-                            ferramenta, seus dados de navegação podem ser armazenados em servidores
-                            de terceiros sem vínculo com a WMF.
+                            <p>After authenticating on the Wiki, some scripts will be loaded directly
+                                from Telegram servers. Be aware that by using this tool, your browsing
+                                data may be stored on third-party servers not affiliated with WMF.
                             </p>
                         <?php endif; ?>
                     </div>
                     <?php if(isset($user['username']) && in_array($user['username'], $admins)): ?>
                         <div class="w3-container w3-margin w3-padding-48 w3-card w3-small" id="main">
-                            <p style="color:red;">Painel administrativo. Se você está lendo essa mensagem,
-                            você é um administrador do grupo do Telegram</p>
+                            <p style="color:red;">Administrative panel. If you are reading this message,
+                            you are an administrator of the Telegram group</p>
                             <form id="userCheckForm" method="POST" action="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>">
-                                <label for="telegramUser">Informe o ID ou username do Telegram:</label>
+                                <label for="telegramUser">Enter the Telegram ID or username:</label>
                                 <input type="text" id="telegramUser" name="telegramUser" required>
-                                <button type="submit">Verificar</button>
+                                <button type="submit">Verify</button>
                             </form>
                             <div id="userInfo" style="margin-top: 20px; display: none;">
-                                <h4>Informações do Usuário:</h4>
-                                <p><strong>Conta Wiki:</strong> <span id="wikiUsername"></span></p>
-                                <p><strong>ID Wiki:</strong> <span id="wikiUserId"></span></p>
+                                <h4>User Information:</h4>
+                                <p><strong>Wiki Account:</strong> <span id="wikiUsername"></span></p>
+                                <p><strong>Wiki ID:</strong> <span id="wikiUserId"></span></p>
                             </div>
                             <script type="text/javascript">
                                 $(document).ready(function () {
