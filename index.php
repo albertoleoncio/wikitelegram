@@ -323,9 +323,39 @@ $groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LI
 if (empty($groups_list)) {
     die("Error: groups_list.inc file is empty or not found.");
 }
+
 if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
     $channelId = $_GET['channel'];
 } else {
+    $channels = [];
+    foreach ($groups_list as $groupId) {
+        $api = "https://api.telegram.org/bot" . $TelegramVerifyToken . "/getChat?chat_id=" . $groupId;
+        $response = file_get_contents($api);
+        $data = json_decode($response, true);
+        if (isset($data['ok']) && $data['ok']) {
+            $photoBase64 = null;
+            if (isset($data['result']['photo']['small_file_id'])) {
+                $fileApi = "https://api.telegram.org/bot" . $TelegramVerifyToken . "/getFile?file_id=" . $data['result']['photo']['small_file_id'];
+                $fileResponse = file_get_contents($fileApi);
+                $fileData = json_decode($fileResponse, true);
+                if (isset($fileData['ok']) && $fileData['ok']) {
+                    $filePath = $fileData['result']['file_path'];
+                    $fileUrl = "https://api.telegram.org/file/bot" . $TelegramVerifyToken . "/" . $filePath;
+                    $photoContent = file_get_contents($fileUrl);
+                    $photoBase64 = base64_encode($photoContent);
+                }
+            }
+            $channels[] = [
+                'id' => $groupId,
+                'name' => $data['result']['title'] ?? 'Unknown',
+                'photo' => $photoBase64
+            ];
+        }
+    }
+
+    if (empty($channels)) {
+        die("Error: Unable to retrieve channel information.");
+    }
     echo "<html lang='en'>
     <head>
         <title>WikiVerifyBot - Error</title>
@@ -360,10 +390,18 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
                 <div class='w3-container w3-margin w3-padding-12 w3-card w3-center'>
                     <div class='loader' id='loader'></div>
                     <div id='menu'>
-                        <p style='color:red;'>Error: Invalid or missing channel ID.</p>
                         <form method='GET'>
-                            <label for='channel'>Please provide a valid channel ID:</label>
-                            <input type='text' id='channel' name='channel' required>
+                            <label for='channel'>Please select a channel:</label>
+                            <select id='channel' name='channel' required>";
+                                foreach ($channels as $channel) {
+                                    echo "<option value='".htmlspecialchars($channel['id'])."'>";
+                                        if ($channel['photo']) {
+                                            echo "<img src='data:image/jpeg;base64,".htmlspecialchars($channel['photo'])."' alt='Channel Image' style='width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;'>";
+                                        }
+                                        echo htmlspecialchars($channel['name']);
+                                    echo "</option>";
+                                }
+                            echo "</select>
                             <button type='submit'>Submit</button>
                         </form>
                     </div>
@@ -594,18 +632,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             class="w3-button w3-white w3-border"
                             onclick="saveChannelIdAndRedirect('<?=$channelId?>');"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" aria-label="Wikimedia"
-                                role="img" style="width: 30px;" viewBox="0 0 512 512">
-                                    <rect width="512" height="512" rx="15%" fill="#fff"/>
-                                    <path d="m65 152v8c0 2 1 3 4 3 20 1 20 5 28 23l90 196c7 
-                                    14 16 16 25-1l45-88 42 88c8 15 16 16 24 0l86-194c8-17 
-                                    19-24 36-24 2 0 2-1 2-3v-8h-80l-1 1v7c0 2 2 3 4 3 10 0 
-                                    29 2 21 19l-70 166-3-1-43-88 37-72c8-15 10-24 25-24 2 
-                                    0 4-1 4-3v-7l-1-1h-64l-1 1v7c0 3 4 3 7 3 18 1 16 8 10 
-                                    19l-27 56-25-52c-9-16-11-21 2-22 3-1 8-1 8-4v-7l-1-1h-69l-1 
-                                    1v8c0 2 2 2 5 2 12 2 12 3 23 26l40 84-37 
-                                    75-3-1-76-167c-8-17 2-16 18-17 3 0 3-1 3-3v-7l-1-1z"/>
-                                </svg> 
+                                <img src="./wikimedia.svg" alt="Wikimedia Logo" style="width: 30px; height: 30px;">
                             <br>Login</button>
                             <p>After authenticating on the Wiki, some scripts will be loaded directly
                                 from Telegram servers. Be aware that by using this tool, your browsing
