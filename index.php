@@ -358,7 +358,7 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
             <div class='w3-content' style='max-width:800px'>
                 <h5 class='w3-center w3-padding-48'><span class='w3-tag w3-wide'>WikiVerifyBot</span></h5>
                 <div class='w3-container w3-margin w3-padding-12 w3-card w3-center'>
-                    <div class='loader'></div>
+                    <div class='loader' id='loader'></div>
                     <div id='menu'>
                         <p style='color:red;'>Error: Invalid or missing channel ID.</p>
                         <form method='GET'>
