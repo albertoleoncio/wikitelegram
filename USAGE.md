@@ -5,7 +5,7 @@
 
 ## How Does It Work?
 - **Restricts new members:** Every new member who joins the group will be automatically set as silent/restricted (cannot send messages or media).
-- **Deletes join notifications:** The bot will delete the system message that announces a new user has joined. Some spammers use this notification to spam the group, since it links to their profile, where the spam can be found.
+- **Deletes join notifications:** The bot will delete the system message that announces a new user has joined. Some spammers use this notification to spam the group, since it links to their profile, where the spam can be found. This feature can now be enabled or disabled per group by the group admin in the web interface.
 - **Unmutes on verification:** When a user completes verification, the bot will automatically unmute them, allowing them to participate in the chat.
 
 ## How to Use

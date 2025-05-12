@@ -775,7 +775,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             </div>
                             <hr>
                             <form id="deleteSettingForm" method="POST" action="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>">
-                                <label for="delete_enabled">Delete messages from restricted users in this group?</label>
+                                <label for="delete_enabled">Delete join notifications and messages from restricted users in this group?</label>
                                 <select name="delete_enabled" id="delete_enabled">
                                     <option value="1" <?=($group_settings[$channelId]??true)?'selected':''?>>Yes</option>
                                     <option value="0" <?=!($group_settings[$channelId]??true)?'selected':''?>>No</option>
