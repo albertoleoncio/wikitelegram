@@ -11,7 +11,6 @@ $TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
 // Add a file to store the list of groups
 $groups_file = __DIR__ . '/groups_list.inc';
-$groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
 
 function logMessage($type, $message) {
     $timestamp = date("Y-m-d H:i:s");
@@ -19,7 +18,21 @@ function logMessage($type, $message) {
 }
 
 while (true) {
-    $offset = file_get_contents(__DIR__ . '/telegram_offset.inc');
+    // Reload group settings on every loop to reflect changes
+    $groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+    $group_settings = [];
+    foreach ($groups_list as $group_line) {
+        if (strpos($group_line, ':') !== false) {
+            list($group_id, $delete_enabled) = explode(':', $group_line, 2);
+            $group_settings[$group_id] = filter_var($delete_enabled, FILTER_VALIDATE_BOOLEAN);
+        } else {
+            $group_settings[$group_line] = false; // default to false for legacy lines
+        }
+    }
+
+    // Load the last offset from the file
+    $file_offset = __DIR__ . '/telegram_offset.inc';
+    $offset = file_exists($file_offset) ? file($file_offset) : 0;
     if (!is_numeric($offset)) {
         $offset = 0;
     }
@@ -102,7 +115,8 @@ while (true) {
             $message_id = $event["message"]["message_id"];
             $chat_id = $event["message"]["chat"]["id"];
 
-            if (in_array($message_user_id, $restricted_users)) {
+            // Only delete if enabled for this group
+            if ((isset($group_settings[$chat_id]) && $group_settings[$chat_id]) && in_array($message_user_id, $restricted_users)) {
                 // Delete the message
                 $delete_params = [
                     'chat_id' => $chat_id,

@@ -359,9 +359,19 @@ $user = $verify->checkLogin();
 // Get the list of groups from the 'groups_list.inc' file.
 // This file should contain a list of group IDs, one per line.
 $groups_file = __DIR__ . '/groups_list.inc';
-$groups_list = file_exists($groups_file) ? file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
-if (empty($groups_list)) {
-    die("Error: groups_list.inc file is empty or not found.");
+$groups_list = [];
+$group_settings = [];
+if (file_exists($groups_file)) {
+    foreach (file($groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $group_line) {
+        if (strpos($group_line, ':') !== false) {
+            list($group_id, $delete_enabled) = explode(':', $group_line, 2);
+            $groups_list[] = $group_id;
+            $group_settings[$group_id] = filter_var($delete_enabled, FILTER_VALIDATE_BOOLEAN);
+        } else {
+            $groups_list[] = $group_line;
+            $group_settings[$group_line] = false; // Default to false if not specified
+        }
+    }
 }
 
 // Check if a channel is selected in the GET request.
@@ -388,6 +398,32 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
             $verify->unmuteTelegramUser($authData, $telegramVerifyToken, $channelId);
         }
     }
+
+    // Handle admin panel POST for message deletion setting
+    if (
+        $_SERVER['REQUEST_METHOD'] === 'POST' &&
+        isset($_POST['delete_enabled']) &&
+        isset($channelId) &&
+        isset($user['username']) &&
+        isset($admins) &&
+        in_array($user['username'], $admins)
+    ) {
+        $delete_enabled = $_POST['delete_enabled'] === '1' ? 'true' : 'false';
+        $new_lines = [];
+        foreach ($group_settings as $gid => $enabled) {
+            if ($gid == $channelId) {
+                $new_lines[] = $gid . ':' . $delete_enabled;
+            } else {
+                $new_lines[] = $gid . ':' . ($enabled ? 'true' : 'false');
+            }
+        }
+        file_put_contents($groups_file, implode(PHP_EOL, $new_lines) . PHP_EOL);
+        $group_settings[$channelId] = $delete_enabled === 'true';
+        // Optional: reload page to reflect changes
+        header('Location: ' . $_SERVER['REQUEST_URI']);
+        exit;
+    }
+
 } else {
 
     // If no channel is selected, retrieve the list of channels from the Telegram API.
@@ -737,6 +773,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                 <p><strong>Wiki Account:</strong> <span id="wikiUsername"></span></p>
                                 <p><strong>Wiki ID:</strong> <span id="wikiUserId"></span></p>
                             </div>
+                            <hr>
+                            <form id="deleteSettingForm" method="POST" action="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>">
+                                <label for="delete_enabled">Delete messages from restricted users in this group?</label>
+                                <select name="delete_enabled" id="delete_enabled">
+                                    <option value="1" <?=($group_settings[$channelId]??true)?'selected':''?>>Yes</option>
+                                    <option value="0" <?=!($group_settings[$channelId]??true)?'selected':''?>>No</option>
+                                </select>
+                                <button type="submit">Save</button>
+                            </form>
                             <script type="text/javascript">
                                 $(document).ready(function () {
                                     $('#userCheckForm').on('submit', function (e) {
