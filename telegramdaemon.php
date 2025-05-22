@@ -116,7 +116,7 @@ while (true) {
             $chat_id = $event["message"]["chat"]["id"];
 
             // Only delete if enabled for this group
-            if ((isset($group_settings[$chat_id]) && $group_settings[$chat_id]) && in_array($message_user_id, $restricted_users)) {
+            if (isset($group_settings[$chat_id]) && $group_settings[$chat_id] === true && in_array($message_user_id, $restricted_users)) {
                 // Delete the message
                 $delete_params = [
                     'chat_id' => $chat_id,
@@ -221,7 +221,7 @@ while (true) {
                 $content = file_get_contents("https://api.telegram.org/bot${TelegramVerifyToken}/restrictChatMember?" . http_build_query($params));
                 $content = json_decode($content, true);
                 if (isset($content["ok"])) {
-                    $id = $content["result"]["user"]["id"];
+                    $id = $event["chat_member"]["chat"]["id"];
                     logMessage("INFO", "Restricted ${new_user} (${new_user_id}) in chat ${id}.");
 
                     // Add the restricted user to the file
