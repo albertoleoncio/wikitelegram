@@ -798,6 +798,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             </script>
                         </div>
                     <?php endif; ?>
+                    <!-- Footer -->
+                    <div class="w3-container w3-margin w3-padding-12 w3-card w3-center">
+                        <p>WikiVerifyBot is a tool designed to verify users from Wikimedia projects in Telegram groups, keeping spammers and impersonators out.</p>
+                        <p>Hosted on <a href="https://wikitech.wikimedia.org/wiki/Toolforge">Toolforge</a> and sourced on <a href="https://github.com/albertoleoncio/wikitelegram">GitHub</a>.</p>
+                    </div>
                 </div>
             </div>
         </div>
