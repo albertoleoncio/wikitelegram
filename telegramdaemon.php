@@ -113,6 +113,31 @@ class TelegramDaemon {
         }
     }
 
+    private function fetchUpdates($params) {
+        try {
+            $content = @file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getUpdates?" . http_build_query($params));
+            
+            if ($content === false) {
+                $this->logMessage("ERROR", "Failed to fetch updates from Telegram API.");
+                sleep(5); // Wait for 5 seconds before retrying
+                return null;
+            }
+
+            $response = json_decode($content, true);
+
+            if (!isset($response["ok"]) || !$response["ok"]) {
+                $this->logMessage("ERROR", "Telegram API returned an error: " . json_encode($response));
+                sleep(5); // Wait for 5 seconds before retrying
+                return null;
+            }
+
+            return $response["result"];
+        } catch (Exception $e) {
+            $this->logMessage("ERROR", "Exception occurred while fetching updates: " . $e->getMessage());
+            return null;
+        }
+    }
+
     private function handleNewChatMember($event) {
         if ($event["chat_member"]["chat"]["type"] == "private") {
             return; // Ignore unrelated chats
