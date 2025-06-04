@@ -115,6 +115,7 @@ class TelegramDaemon {
     private function loadOffset() {
         $this->logMessage("DEBUG", "Loading offset from {$this->fileOffset}.");
         $offset = file_exists($this->fileOffset) ? file($this->fileOffset) : 0;
+        if (is_array($offset)) $offset = trim($offset[0]);
         $this->logMessage("DEBUG", "Loaded offset: {$offset}");
         return is_numeric($offset) ? $offset : 0;
     }
