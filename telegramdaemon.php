@@ -230,7 +230,7 @@ class TelegramDaemon {
 
 
 
-            if (empty($updates)) {
+            if ($updates === null || empty($updates)) {
                 // No updates, skip output
                 usleep(200000); // Delay for 0.2 seconds
                 return;
@@ -263,7 +263,7 @@ class TelegramDaemon {
             // Update the offset after processing all updates
             file_put_contents($this->file_offset, $offset);
 
-        }
+
     }
 
     public function run() {
