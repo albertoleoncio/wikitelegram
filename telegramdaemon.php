@@ -176,24 +176,38 @@ class TelegramDaemon {
      */
     private function handleMessage($event, $group_settings, $restricted_users) {
         $this->logMessage("DEBUG", "Handling message event: " . json_encode($event));
+
         $message_user_id = $event["message"]["from"]["id"];
         $message_id = $event["message"]["message_id"];
         $chat_id = $event["message"]["chat"]["id"];
 
-        // Only delete if enabled for this group
-        if (isset($group_settings[$chat_id]) && $group_settings[$chat_id] === true && in_array($message_user_id, $restricted_users)) {
-            // Delete the message
-            $delete_params = [
-                'chat_id' => $chat_id,
-                'message_id' => $message_id
-            ];
-            $delete_content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
-            $delete_result = json_decode($delete_content, true);
-            if (isset($delete_result["ok"])) {
-                $this->logMessage("INFO", "Deleted message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
-            } else {
-                $this->logMessage("ERROR", "Failed to delete message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
-            }
+        if (!isset($group_settings[$chat_id])) {
+            $this->logMessage("DEBUG", "Condition failed: Group ID {$chat_id} is not in group settings.");
+            return;
+        }
+
+        if ($group_settings[$chat_id] !== true) {
+            $this->logMessage("DEBUG", "Condition failed: Delete messages is not enabled for group ID {$chat_id}.");
+            return;
+        }
+
+        if (!in_array($message_user_id, $restricted_users)) {
+            $this->logMessage("DEBUG", "Condition failed: User ID {$message_user_id} is not in the restricted users list.");
+            return;
+        }
+
+        // Delete the message
+        $delete_params = [
+            'chat_id' => $chat_id,
+            'message_id' => $message_id
+        ];
+        $delete_content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
+        $delete_result = json_decode($delete_content, true);
+
+        if (isset($delete_result["ok"])) {
+            $this->logMessage("INFO", "Deleted message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
+        } else {
+            $this->logMessage("ERROR", "Failed to delete message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
         }
     }
 
@@ -205,15 +219,29 @@ class TelegramDaemon {
      * @param array &$restricted_users The list of restricted users.
      */
     private function handleChatMember($event, &$restricted_users) {
-        if (isset($event["chat_member"]["new_chat_member"]) && $event["chat_member"]["new_chat_member"]["status"] == "restricted") {
-            $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
-            if (in_array($restricted_user_id, $restricted_users)) {
-                // Remove the user from the restricted users file
-                $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
-                file_put_contents($this->restrictedUsersFile, implode(PHP_EOL, $restricted_users) . PHP_EOL);
-                $this->logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
-            }
+        $this->logMessage("DEBUG", "Handling chat member update: " . json_encode($event));
+
+        if (!isset($event["chat_member"]["new_chat_member"])) {
+            $this->logMessage("DEBUG", "Condition failed: was not a 'new_chat_member' update.");
+            return;
         }
+
+        $new_chat_member_status = $event["chat_member"]["new_chat_member"]["status"];
+        if ($new_chat_member_status !== "restricted") {
+            $this->logMessage("DEBUG", "Condition failed: 'new_chat_member' status is not 'restricted' (status: {$new_chat_member_status}).");
+            return;
+        }
+
+        $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
+        if (!in_array($restricted_user_id, $restricted_users)) {
+            $this->logMessage("DEBUG", "Condition failed: User ID {$restricted_user_id} is not in the restricted users list.");
+            return;
+        }
+
+        // Remove the user from the restricted users file
+        $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
+        file_put_contents($this->restrictedUsersFile, implode(PHP_EOL, $restricted_users) . PHP_EOL);
+        $this->logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
     }
 
     /**
@@ -226,7 +254,7 @@ class TelegramDaemon {
     private function fetchUpdates($offset) {
         $this->logMessage("DEBUG", "Fetching updates with offset: {$offset} + 1.");
         $params = [
-            'timeout' => 10,
+            'timeout' => 20,
             'allowed_updates' => '["chat_member","message","my_chat_member"]',
             'offset' => $offset + 1 // Increment offset to avoid fetching the same update again
         ];
@@ -440,7 +468,7 @@ class TelegramDaemon {
             // Fetch updates from Telegram API
             $updates = $this->fetchUpdates($offset);
             if ($updates === null || empty($updates)) {
-                // No updates, skip output
+                $this->logMessage("DEBUG", "No updates found or failed to fetch updates. Retrying in 1 second.");
                 sleep(1); // Delay for 1 second
                 continue;
             }
