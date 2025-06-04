@@ -225,45 +225,39 @@ class TelegramDaemon {
     }
 
     private function processUpdates($params, &$offset, $group_settings, $restricted_users) {
-
         $updates = $this->fetchUpdates($params);
+        if ($updates === null || empty($updates)) {
+            // No updates, skip output
+            usleep(200000); // Delay for 0.2 seconds
+            return;
+        }
 
+        foreach ($updates as $event) {
+            $offset = $event["update_id"];
 
-
-            if ($updates === null || empty($updates)) {
-                // No updates, skip output
-                usleep(200000); // Delay for 0.2 seconds
-                return;
+            // Handle my_chat_member updates
+            if (isset($event["my_chat_member"])) {
+                $this->handleMyChatMember($event);
+            }
+            
+            // Check for messages from restricted users
+            if (isset($event["message"])) {
+                $this->handleMessage($event, $group_settings, $restricted_users);
             }
 
-            foreach ($updates as $event) {
-                $offset = $event["update_id"];
-
-                // Handle my_chat_member updates
-                if (isset($event["my_chat_member"])) {
-                    $this->handleMyChatMember($event);
-                }
-                
-                // Check for messages from restricted users
-                if (isset($event["message"])) {
-                    $this->handleMessage($event, $group_settings, $restricted_users);
-                }
-
-                // Handle restriction updates
-                if (isset($event["chat_member"])) {
-                    $this->handleChatMember($event, $restricted_users);
-                }
-
-                // Handle new chat members
-                if (isset($event["chat_member"]["new_chat_member"])) {
-                    $this->handleNewChatMember($event);
-                }
+            // Handle restriction updates
+            if (isset($event["chat_member"])) {
+                $this->handleChatMember($event, $restricted_users);
             }
 
-            // Update the offset after processing all updates
-            file_put_contents($this->file_offset, $offset);
+            // Handle new chat members
+            if (isset($event["chat_member"]["new_chat_member"])) {
+                $this->handleNewChatMember($event);
+            }
+        }
 
-
+        // Update the offset after processing all updates
+        file_put_contents($this->file_offset, $offset);
     }
 
     public function run() {
