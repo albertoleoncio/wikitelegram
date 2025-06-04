@@ -30,6 +30,11 @@ class TelegramDaemon {
     private $restrictedUsersFile;
 
     /**
+     * @var bool $verbose Whether to enable verbose logging for detailed debugging.
+     */
+    private $verbose;
+
+    /**
      * Load configuration from an INI file. This method reads the specified INI file
      * and returns the configuration settings as an associative array.
      *
@@ -48,24 +53,32 @@ class TelegramDaemon {
     /**
      * Constructor for the TelegramDaemon class. This method initializes the daemon by
      * loading configuration settings, group settings, and other necessary files.
+     *
+     * @param bool $verbose Whether to enable verbose logging.
      */
-    public function __construct() {
+    public function __construct($verbose = false) {
+        $this->verbose = $verbose;
+
         $ts_tokens = $this->loadConfig("tokens.inc");
         $this->telegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
         $this->groupsFile = __DIR__ . '/groups_list.inc';
         $this->fileOffset = __DIR__ . '/telegram_offset.inc';
         $this->restrictedUsersFile = __DIR__ . '/restricted_users.inc';
+        $this->logMessage("DEBUG", "Verbose mode enabled.");
     }
 
     /**
      * Log messages to the console with a timestamp. This method formats the log message
-     * with the current timestamp and the type of message (INFO, ERROR, etc.).
+     * with the current timestamp and the type of message (INFO, ERROR, DEBUG, etc.).
      *
-     * @param string $type The type of log message (e.g., INFO, ERROR).
+     * @param string $type The type of log message (e.g., INFO, ERROR, DEBUG).
      * @param string $message The message to log.
      */
     private function logMessage($type, $message) {
+        if (!$this->verbose && $type === "DEBUG") {
+            return; // Skip debug messages if verbose mode is disabled
+        }
         $timestamp = date("Y-m-d H:i:s");
         echo "[$timestamp] [$type] $message\n";
     }
@@ -77,6 +90,7 @@ class TelegramDaemon {
      * @return array An associative array where keys are group IDs and values are boolean indicating if delete is enabled.
      */
     private function loadGroupSettings() {
+        $this->logMessage("DEBUG", "Loading group settings from {$this->groupsFile}.");
         $groups_list = file_exists($this->groupsFile) ? file($this->groupsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
         $group_settings = [];
         foreach ($groups_list as $group_line) {
@@ -87,6 +101,7 @@ class TelegramDaemon {
                 $group_settings[$group_line] = false; // default to false for legacy lines
             }
         }
+        $this->logMessage("DEBUG", "Loaded group settings: " . json_encode($group_settings));
         return $group_settings;
     }
 
@@ -98,7 +113,9 @@ class TelegramDaemon {
      * @return int The last offset read from the file, or 0 if the file does not exist or contains invalid data.
      */
     private function loadOffset() {
+        $this->logMessage("DEBUG", "Loading offset from {$this->fileOffset}.");
         $offset = file_exists($this->fileOffset) ? file($this->fileOffset) : 0;
+        $this->logMessage("DEBUG", "Loaded offset: {$offset}");
         return is_numeric($offset) ? $offset : 0;
     }
 
@@ -109,6 +126,7 @@ class TelegramDaemon {
      * @return array The list of restricted user IDs.
      */
     private function loadRestrictedUsers() {
+        $this->logMessage("DEBUG", "Loading restricted users from {$this->restrictedUsersFile}.");
         return file_exists($this->restrictedUsersFile) ? file($this->restrictedUsersFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     }
 
@@ -156,6 +174,7 @@ class TelegramDaemon {
      * @param array $restricted_users The list of restricted users.
      */
     private function handleMessage($event, $group_settings, $restricted_users) {
+        $this->logMessage("DEBUG", "Handling message event: " . json_encode($event));
         $message_user_id = $event["message"]["from"]["id"];
         $message_id = $event["message"]["message_id"];
         $chat_id = $event["message"]["chat"]["id"];
@@ -204,6 +223,7 @@ class TelegramDaemon {
      * @return array|null The updates fetched from the Telegram API, or null on failure.
      */
     private function fetchUpdates($offset) {
+        $this->logMessage("DEBUG", "Fetching updates with offset: {$offset}.");
         $params = [
             'timeout' => 10,
             'allowed_updates' => '["chat_member","message","my_chat_member"]',
@@ -232,6 +252,7 @@ class TelegramDaemon {
             $this->logMessage("ERROR", "Exception occurred while fetching updates: " . $e->getMessage());
         }
 
+        $this->logMessage("DEBUG", "Fetched updates: " . json_encode($result));
         return $result;
     }
 
@@ -283,6 +304,7 @@ class TelegramDaemon {
      * @param array $event The update event from Telegram.
      */
     private function handleNewChatMember($event) {
+        $this->logMessage("DEBUG", "Handling new chat member event: " . json_encode($event));
         if ($event["chat_member"]["chat"]["type"] == "private") {
             return; // Ignore unrelated chats
         }
@@ -380,6 +402,7 @@ class TelegramDaemon {
      * @param array &$restricted_users The list of restricted users.
      */
     private function processUpdates($event, $group_settings, &$restricted_users) {
+        $this->logMessage("DEBUG", "Processing update event: " . json_encode($event));
         // Handle my_chat_member updates
         if (isset($event["my_chat_member"])) {
             $this->handleMyChatMember($event);
@@ -402,6 +425,7 @@ class TelegramDaemon {
     }
 
     public function run() {
+        $this->logMessage("DEBUG", "Starting TelegramDaemon in verbose mode.");
         while (true) {
             // Reload group settings on every loop to reflect changes
             $group_settings = $this->loadGroupSettings();
@@ -432,5 +456,6 @@ class TelegramDaemon {
     }
 }
 
-$daemon = new TelegramDaemon();
+$verbose = in_array('--verbose', $argv);
+$daemon = new TelegramDaemon($verbose);
 $daemon->run();
