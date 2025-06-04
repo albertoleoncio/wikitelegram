@@ -441,7 +441,7 @@ class TelegramDaemon {
             $updates = $this->fetchUpdates($offset);
             if ($updates === null || empty($updates)) {
                 // No updates, skip output
-                usleep(200000); // Delay for 0.2 seconds
+                sleep(1); // Delay for 1 second
                 continue;
             }
 
