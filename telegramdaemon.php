@@ -12,9 +12,17 @@ class TelegramDaemon {
     private $file_offset;
     private $restricted_users_file;
 
+    private function loadConfig($file_path) {
+        $full_path = posix_getpwuid(posix_getuid())['dir'] . "/${file_path}";
+        if (!file_exists($full_path)) {
+            $this->logMessage("ERROR", "Configuration file ${file_path} not found.");
+            exit(1);
+        }
+        return parse_ini_file($full_path);
+    }
+
     public function __construct() {
-        $ts_pw = posix_getpwuid(posix_getuid());
-        $ts_tokens = parse_ini_file($ts_pw['dir'] . "/tokens.inc");
+        $ts_tokens = $this->loadConfig("tokens.inc");
         $this->TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
         $this->groups_file = __DIR__ . '/groups_list.inc';
@@ -113,7 +121,13 @@ class TelegramDaemon {
         }
     }
 
-    private function fetchUpdates($params) {
+    private function fetchUpdates($offset) {
+        $params = [
+            'timeout' => 10,
+            'allowed_updates' => '["chat_member","message","my_chat_member"]',
+            'offset' => $offset
+        ];
+
         try {
             $content = @file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getUpdates?" . http_build_query($params));
             
@@ -155,8 +169,7 @@ class TelegramDaemon {
         $new_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
 
         try {
-            $ts_pw = posix_getpwuid(posix_getuid());
-            $ts_mycnf = parse_ini_file($ts_pw['dir'] . "/replica.my.cnf");
+            $ts_mycnf = $this->loadConfig("replica.my.cnf");
             $con = mysqli_connect(
                 'tools.db.svc.eqiad.wmflabs',
                 $ts_mycnf['user'],
@@ -229,39 +242,26 @@ class TelegramDaemon {
         $this->logMessage("INFO", "Updated offset to ${offset}.");
     }
 
-    private function processUpdates($params, &$offset, $group_settings, $restricted_users) {
-        $updates = $this->fetchUpdates($params);
-        if ($updates === null || empty($updates)) {
-            // No updates, skip output
-            usleep(200000); // Delay for 0.2 seconds
-            return;
+    private function processUpdates($event, $group_settings, &$restricted_users) {
+        // Handle my_chat_member updates
+        if (isset($event["my_chat_member"])) {
+            $this->handleMyChatMember($event);
+        }
+        
+        // Check for messages from restricted users
+        if (isset($event["message"])) {
+            $this->handleMessage($event, $group_settings, $restricted_users);
         }
 
-        foreach ($updates as $event) {
-            $offset = $event["update_id"];
-
-            // Handle my_chat_member updates
-            if (isset($event["my_chat_member"])) {
-                $this->handleMyChatMember($event);
-            }
-            
-            // Check for messages from restricted users
-            if (isset($event["message"])) {
-                $this->handleMessage($event, $group_settings, $restricted_users);
-            }
-
-            // Handle restriction updates
-            if (isset($event["chat_member"])) {
-                $this->handleChatMember($event, $restricted_users);
-            }
-
-            // Handle new chat members
-            if (isset($event["chat_member"]["new_chat_member"])) {
-                $this->handleNewChatMember($event);
-            }
+        // Handle restriction updates
+        if (isset($event["chat_member"])) {
+            $this->handleChatMember($event, $restricted_users);
         }
 
-        $this->updateOffset($offset);
+        // Handle new chat members
+        if (isset($event["chat_member"]["new_chat_member"])) {
+            $this->handleNewChatMember($event);
+        }
     }
 
     public function run() {
@@ -275,14 +275,22 @@ class TelegramDaemon {
             // Load the list of users that are recently restricted in order to delete their messages
             $restricted_users = $this->loadRestrictedUsers();
 
-            $params = [
-                'timeout' => 10,
-                'allowed_updates' => '["chat_member","message","my_chat_member"]', // Include "message" and "my_chat_member" updates
-                'offset' => $offset
-            ];
+            // Fetch updates from Telegram API
+            $updates = $this->fetchUpdates($offset);
+            if ($updates === null || empty($updates)) {
+                // No updates, skip output
+                usleep(200000); // Delay for 0.2 seconds
+                continue;
+            }
 
-            // Encapsulated update processing logic
-            $this->processUpdates($params, $offset, $group_settings, $restricted_users);
+            // Process each update
+            foreach ($updates as $event) {
+                $offset = $event["update_id"];
+                $this->processUpdates($event, $group_settings, $restricted_users);
+            }
+
+            // Update the offset after processing all updates
+            $this->updateOffset($offset);
         }
     }
 }
