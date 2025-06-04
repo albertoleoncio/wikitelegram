@@ -79,6 +79,17 @@ class TelegramDaemon {
         }
     }
 
+    private function handleChatMember($event, &$restricted_users) {
+        if (isset($event["chat_member"]["new_chat_member"]) && $event["chat_member"]["new_chat_member"]["status"] == "restricted") {
+            $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
+            if (in_array($restricted_user_id, $restricted_users)) {
+                // Remove the user from the restricted users file
+                $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
+                file_put_contents($this->restricted_users_file, implode(PHP_EOL, $restricted_users) . PHP_EOL);
+                $this->logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
+            }
+        }
+    }
     private function processUpdates($params, &$offset, $group_settings, $restricted_users) {
         try {
             $content = @file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getUpdates?" . http_build_query($params));
@@ -137,14 +148,8 @@ class TelegramDaemon {
                 }
 
                 // Handle restriction updates
-                if (isset($event["chat_member"]["new_chat_member"]) && $event["chat_member"]["new_chat_member"]["status"] == "restricted") {
-                    $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
-                    if (in_array($restricted_user_id, $restricted_users)) {
-                        // Remove the user from the restricted users file
-                        $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
-                        file_put_contents($this->restricted_users_file, implode(PHP_EOL, $restricted_users) . PHP_EOL);
-                        $this->logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
-                    }
+                if (isset($event["chat_member"])) {
+                    $this->handleChatMember($event, $restricted_users);
                 }
 
                 // Handle new chat members
