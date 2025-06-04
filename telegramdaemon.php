@@ -79,6 +79,28 @@ class TelegramDaemon {
         }
     }
 
+    private function handleMessage($event, $group_settings, $restricted_users) {
+        $message_user_id = $event["message"]["from"]["id"];
+        $message_id = $event["message"]["message_id"];
+        $chat_id = $event["message"]["chat"]["id"];
+
+        // Only delete if enabled for this group
+        if (isset($group_settings[$chat_id]) && $group_settings[$chat_id] === true && in_array($message_user_id, $restricted_users)) {
+            // Delete the message
+            $delete_params = [
+                'chat_id' => $chat_id,
+                'message_id' => $message_id
+            ];
+            $delete_content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
+            $delete_result = json_decode($delete_content, true);
+            if (isset($delete_result["ok"])) {
+                $this->logMessage("INFO", "Deleted message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
+            } else {
+                $this->logMessage("ERROR", "Failed to delete message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
+            }
+        }
+    }
+
     private function handleChatMember($event, &$restricted_users) {
         if (isset($event["chat_member"]["new_chat_member"]) && $event["chat_member"]["new_chat_member"]["status"] == "restricted") {
             $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
@@ -126,25 +148,7 @@ class TelegramDaemon {
                 
                 // Check for messages from restricted users
                 if (isset($event["message"])) {
-                    $message_user_id = $event["message"]["from"]["id"];
-                    $message_id = $event["message"]["message_id"];
-                    $chat_id = $event["message"]["chat"]["id"];
-
-                    // Only delete if enabled for this group
-                    if (isset($group_settings[$chat_id]) && $group_settings[$chat_id] === true && in_array($message_user_id, $restricted_users)) {
-                        // Delete the message
-                        $delete_params = [
-                            'chat_id' => $chat_id,
-                            'message_id' => $message_id
-                        ];
-                        $delete_content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
-                        $delete_result = json_decode($delete_content, true);
-                        if (isset($delete_result["ok"])) {
-                            $this->logMessage("INFO", "Deleted message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
-                        } else {
-                            $this->logMessage("ERROR", "Failed to delete message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
-                        }
-                    }
+                    $this->handleMessage($event, $group_settings, $restricted_users);
                 }
 
                 // Handle restriction updates
