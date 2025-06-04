@@ -7,11 +7,35 @@ if (php_sapi_name() !== 'cli') {
 require_once __DIR__ . '/WikiAphpi/main.php';
 
 class TelegramDaemon {
-    private $TelegramVerifyToken;
-    private $groups_file;
-    private $file_offset;
-    private $restricted_users_file;
+    /**
+     * @var string $telegramVerifyToken The token used to authenticate with the Telegram Bot API.
+     */
+    private $telegramVerifyToken;
 
+    /**
+     * @var string $groupsFile The path to the file containing group settings.
+     * @var string $fileOffset The path to the file storing the last offset of Telegram API updates.
+     */
+    private $groupsFile;
+    private $fileOffset;
+
+    /**
+     * This file is used to keep track of users who just got restricted in a group, but their
+     * messages are still present in the group if they were fast enough to send a message
+     * before being restricted. This file is used to find those users and delete their messages.
+     * Their IDs are removed from the file as soon as the API confirms that the user is restricted.
+     * 
+     * @var string $restrictedUsersFile The path to the file containing restricted user IDs.
+     */
+    private $restrictedUsersFile;
+
+    /**
+     * Load configuration from an INI file. This method reads the specified INI file
+     * and returns the configuration settings as an associative array.
+     *
+     * @param string $file_path The path to the INI file.
+     * @return array The configuration settings.
+     */
     private function loadConfig($file_path) {
         $full_path = posix_getpwuid(posix_getuid())['dir'] . "/${file_path}";
         if (!file_exists($full_path)) {
@@ -21,22 +45,39 @@ class TelegramDaemon {
         return parse_ini_file($full_path);
     }
 
+    /**
+     * Constructor for the TelegramDaemon class. This method initializes the daemon by
+     * loading configuration settings, group settings, and other necessary files.
+     */
     public function __construct() {
         $ts_tokens = $this->loadConfig("tokens.inc");
-        $this->TelegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
+        $this->telegramVerifyToken = $ts_tokens['TelegramVerifyToken'];
 
-        $this->groups_file = __DIR__ . '/groups_list.inc';
-        $this->file_offset = __DIR__ . '/telegram_offset.inc';
-        $this->restricted_users_file = __DIR__ . '/restricted_users.inc';
+        $this->groupsFile = __DIR__ . '/groups_list.inc';
+        $this->fileOffset = __DIR__ . '/telegram_offset.inc';
+        $this->restrictedUsersFile = __DIR__ . '/restricted_users.inc';
     }
 
+    /**
+     * Log messages to the console with a timestamp. This method formats the log message
+     * with the current timestamp and the type of message (INFO, ERROR, etc.).
+     *
+     * @param string $type The type of log message (e.g., INFO, ERROR).
+     * @param string $message The message to log.
+     */
     private function logMessage($type, $message) {
         $timestamp = date("Y-m-d H:i:s");
         echo "[$timestamp] [$type] $message\n";
     }
 
+    /**
+     * Load group settings from the groups file. This method reads the file containing
+     * group IDs and their delete message settings, returning an associative array.
+     *
+     * @return array An associative array where keys are group IDs and values are boolean indicating if delete is enabled.
+     */
     private function loadGroupSettings() {
-        $groups_list = file_exists($this->groups_file) ? file($this->groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+        $groups_list = file_exists($this->groupsFile) ? file($this->groupsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
         $group_settings = [];
         foreach ($groups_list as $group_line) {
             if (strpos($group_line, ':') !== false) {
@@ -49,15 +90,34 @@ class TelegramDaemon {
         return $group_settings;
     }
 
+    /**
+     * Load the last offset of the Telegram API from a file. This method reads the offset
+     * from a file and returns it as an integer. If the file does not exist or contains
+     * invalid data, it returns 0.
+     *
+     * @return int The last offset read from the file, or 0 if the file does not exist or contains invalid data.
+     */
     private function loadOffset() {
-        $offset = file_exists($this->file_offset) ? file($this->file_offset) : 0;
+        $offset = file_exists($this->fileOffset) ? file($this->fileOffset) : 0;
         return is_numeric($offset) ? $offset : 0;
     }
 
+    /**
+     * Load the list of restricted users from the file. This method reads the file containing
+     * user IDs of restricted users and returns them as an array.
+     *
+     * @return array The list of restricted user IDs.
+     */
     private function loadRestrictedUsers() {
-        return file_exists($this->restricted_users_file) ? file($this->restricted_users_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+        return file_exists($this->restrictedUsersFile) ? file($this->restrictedUsersFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
     }
 
+    /**
+     * Handle my_chat_member updates. This method checks the status of the bot in the chat
+     * and updates the groups list accordingly.
+     *
+     * @param array $event The update event from Telegram.
+     */
     private function handleMyChatMember($event) {
         $chat_id = $event["my_chat_member"]["chat"]["id"];
         $chat_type = $event["my_chat_member"]["chat"]["type"];
@@ -87,6 +147,14 @@ class TelegramDaemon {
         }
     }
 
+    /**
+     * Handle messages from restricted users. This method checks if the message is from a user
+     * that has been restricted in the group, and deletes the message if necessary.
+     *
+     * @param array $event The update event from Telegram.
+     * @param array $group_settings The settings for groups.
+     * @param array $restricted_users The list of restricted users.
+     */
     private function handleMessage($event, $group_settings, $restricted_users) {
         $message_user_id = $event["message"]["from"]["id"];
         $message_id = $event["message"]["message_id"];
@@ -99,7 +167,7 @@ class TelegramDaemon {
                 'chat_id' => $chat_id,
                 'message_id' => $message_id
             ];
-            $delete_content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
+            $delete_content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
             $delete_result = json_decode($delete_content, true);
             if (isset($delete_result["ok"])) {
                 $this->logMessage("INFO", "Deleted message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
@@ -109,18 +177,32 @@ class TelegramDaemon {
         }
     }
 
+    /**
+     * Handle chat member updates. This method checks if a user was restricted in a chat,
+     * and if so, removes them from the temporary restricted users list.
+     *
+     * @param array $event The update event from Telegram.
+     * @param array &$restricted_users The list of restricted users.
+     */
     private function handleChatMember($event, &$restricted_users) {
         if (isset($event["chat_member"]["new_chat_member"]) && $event["chat_member"]["new_chat_member"]["status"] == "restricted") {
             $restricted_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
             if (in_array($restricted_user_id, $restricted_users)) {
                 // Remove the user from the restricted users file
                 $restricted_users = array_diff($restricted_users, [$restricted_user_id]);
-                file_put_contents($this->restricted_users_file, implode(PHP_EOL, $restricted_users) . PHP_EOL);
+                file_put_contents($this->restrictedUsersFile, implode(PHP_EOL, $restricted_users) . PHP_EOL);
                 $this->logMessage("INFO", "Removed user ${restricted_user_id} from restricted users list.");
             }
         }
     }
 
+    /**
+     * Fetch updates from the Telegram API. This method retrieves updates such as new messages,
+     * chat member updates, and other events.
+     *
+     * @param int $offset The offset to start fetching updates from.
+     * @return array|null The updates fetched from the Telegram API, or null on failure.
+     */
     private function fetchUpdates($offset) {
         $params = [
             'timeout' => 10,
@@ -128,30 +210,78 @@ class TelegramDaemon {
             'offset' => $offset
         ];
 
+        $result = null;
+
         try {
-            $content = @file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getUpdates?" . http_build_query($params));
+            $content = @file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/getUpdates?" . http_build_query($params));
             
             if ($content === false) {
                 $this->logMessage("ERROR", "Failed to fetch updates from Telegram API.");
                 sleep(5); // Wait for 5 seconds before retrying
-                return null;
+            } else {
+                $response = json_decode($content, true);
+
+                if (!isset($response["ok"]) || !$response["ok"]) {
+                    $this->logMessage("ERROR", "Telegram API returned an error: " . json_encode($response));
+                    sleep(5); // Wait for 5 seconds before retrying
+                } else {
+                    $result = $response["result"];
+                }
             }
-
-            $response = json_decode($content, true);
-
-            if (!isset($response["ok"]) || !$response["ok"]) {
-                $this->logMessage("ERROR", "Telegram API returned an error: " . json_encode($response));
-                sleep(5); // Wait for 5 seconds before retrying
-                return null;
-            }
-
-            return $response["result"];
         } catch (Exception $e) {
             $this->logMessage("ERROR", "Exception occurred while fetching updates: " . $e->getMessage());
-            return null;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Restrict a user in a chat. This method uses the Telegram API to restrict a user
+     * from sending messages and other interactions in the specified chat.
+     *
+     * @param int $chat_id The ID of the chat where the user will be restricted.
+     * @param int $user_id The ID of the user to restrict.
+     * @param string $username The username of the user to restrict.
+     */
+    private function restrictUser($chat_id, $user_id, $username) {
+        $params = [
+            'chat_id' => $chat_id,
+            'user_id' => $user_id,
+            "permissions" => [
+                "can_send_messages" => false,
+                "can_send_audios" => false,
+                "can_send_documents" => false,
+                "can_send_photos" => false,
+                "can_send_videos" => false,
+                "can_send_video_notes" => false,
+                "can_send_voice_notes" => false,
+                "can_send_polls" => false,
+                "can_send_other_messages" => false,
+                "can_add_web_page_previews" => false,
+                "can_change_info" => false,
+                "can_invite_users" => false,
+                "can_pin_messages" => false,
+                "can_manage_topics" => false,
+            ]
+        ];
+
+        $content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/restrictChatMember?" . http_build_query($params));
+        $response = json_decode($content, true);
+
+        if (isset($response["ok"]) && $response["ok"]) {
+            $this->logMessage("INFO", "Restricted ${username} (${user_id}) in chat ${chat_id}.");
+            file_put_contents($this->restrictedUsersFile, $user_id . PHP_EOL, FILE_APPEND);
+        } else {
+            $this->logMessage("ERROR", "Failed to restrict ${username} (${user_id}) in chat ${chat_id}.");
         }
     }
 
+    /**
+     * Handle new chat members. This method checks if the new member is a bot or already verified,
+     * and restricts them if they are not verified.
+     *
+     * @param array $event The update event from Telegram.
+     */
     private function handleNewChatMember($event) {
         if ($event["chat_member"]["chat"]["type"] == "private") {
             return; // Ignore unrelated chats
@@ -165,9 +295,34 @@ class TelegramDaemon {
             return; // Ignore non-members
         }
 
-        $new_user = $event["chat_member"]["new_chat_member"]["user"]["username"] ?? '';
         $new_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
+        $new_user = $event["chat_member"]["new_chat_member"]["user"]["username"] ?? '';
 
+        if ($this->queryUserDatabase($new_user_id)) {
+            $this->logMessage("INFO", "User ${new_user_id} is already verified.");
+            return; // User is already verified, no need to restrict
+        }
+
+        // Get user status on Telegram
+        $params = [
+            'chat_id' => $event["chat_member"]["chat"]["id"],
+            'user_id' => $new_user_id
+        ];
+        $content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/getChatMember?" . http_build_query($params));
+        $status = json_decode($content, true)["result"]["status"];
+
+        if ($status == "member") {
+            $this->restrictUser($event["chat_member"]["chat"]["id"], $new_user_id, $new_user);
+        }
+    }
+
+    /**
+     * Query the user database to check if the user is already verified.
+     *
+     * @param int $user_id The Telegram user ID to check.
+     * @return bool True if the user is verified, false otherwise.
+     */
+    private function queryUserDatabase($user_id) {
         try {
             $ts_mycnf = $this->loadConfig("replica.my.cnf");
             $con = mysqli_connect(
@@ -176,72 +331,54 @@ class TelegramDaemon {
                 $ts_mycnf['password'],
                 $ts_mycnf['user'] . "__telegram"
             );
+            if (!$con) {
+                throw new Exception("Failed to connect to the database: " . mysqli_connect_error());
+            }
 
-            $query = "SELECT * FROM `verifications` WHERE `t_id` = '$new_user_id'";
-            $result = mysqli_query($con, $query);
+            $sql_user_id = mysqli_real_escape_string($con, $user_id);
+            $result = mysqli_query($con, "SELECT * FROM `verifications` WHERE `t_id` = '$sql_user_id' LIMIT 1");
+            if (!$result) {
+                throw new Exception("Database query failed: " . mysqli_error($con));
+            }
+
             if (mysqli_num_rows($result) > 0) {
                 $row = mysqli_fetch_assoc($result);
                 $w_id = $row['w_id'];
                 if ($w_id != null) {
-                    $this->logMessage("INFO", "User ${new_user} (${new_user_id}) already verified as ${w_id}.");
-                    return;
+                    $this->logMessage("INFO", "User ${user_id} already verified on wiki as ${w_id}.");
+                    return true; // User is already verified
                 }
             }
+
+            $this->logMessage("INFO", "User ${user_id} is not verified.");
+            return false; // User is not verified
+
         } catch (Exception $e) {
-            $this->logMessage("ERROR", "Database connection error: " . $e->getMessage());
+            $this->logMessage("ERROR", "Database error: " . $e->getMessage());
             $this->logMessage("INFO", "Retrying to connect in 15 seconds.");
             sleep(15);
             exit;
         }
-
-        // Get user status on Telegram
-        $params = [
-            'chat_id' => $event["chat_member"]["chat"]["id"],
-            'user_id' => $new_user_id
-        ];
-        $content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getChatMember?" . http_build_query($params));
-        $status = json_decode($content, true)["result"]["status"];
-
-        if ($status == "member") {
-            $params = [
-                'chat_id' => $event["chat_member"]["chat"]["id"],
-                'user_id' => $new_user_id,
-                "permissions" => [
-                    "can_send_messages" => false,
-                    "can_send_audios" => false,
-                    "can_send_documents" => false,
-                    "can_send_photos" => false,
-                    "can_send_videos" => false,
-                    "can_send_video_notes" => false,
-                    "can_send_voice_notes" => false,
-                    "can_send_polls" => false,
-                    "can_send_other_messages" => false,
-                    "can_add_web_page_previews" => false,
-                    "can_change_info" => false,
-                    "can_invite_users" => false,
-                    "can_pin_messages" => false,
-                    "can_manage_topics" => false,
-                ]
-            ];
-            $content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/restrictChatMember?" . http_build_query($params));
-            $content = json_decode($content, true);
-            if (isset($content["ok"])) {
-                $id = $event["chat_member"]["chat"]["id"];
-                $this->logMessage("INFO", "Restricted ${new_user} (${new_user_id}) in chat ${id}.");
-
-                // Add the restricted user to the file
-                file_put_contents($this->restricted_users_file, $new_user_id . PHP_EOL, FILE_APPEND);
-            } else {
-                $this->logMessage("ERROR", "Failed to restrict ${new_user} (${new_user_id}).");
-            }
-        }
     }
 
+    /**
+     * Update the offset file with the latest update ID.
+     *
+     * @param int $offset The latest update ID to store.
+     */
     private function updateOffset($offset) {
-        file_put_contents($this->file_offset, $offset);
+        file_put_contents($this->fileOffset, $offset);
         $this->logMessage("INFO", "Updated offset to ${offset}.");
     }
 
+    /**
+     * Process updates from Telegram API. This method handles different types of updates
+     * including messages, chat member updates, and new chat members.
+     *
+     * @param array $event The update event from Telegram.
+     * @param array $group_settings The settings for groups.
+     * @param array &$restricted_users The list of restricted users.
+     */
     private function processUpdates($event, $group_settings, &$restricted_users) {
         // Handle my_chat_member updates
         if (isset($event["my_chat_member"])) {
