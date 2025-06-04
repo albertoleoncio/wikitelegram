@@ -200,24 +200,10 @@ class TelegramDaemon {
     }
 
     private function processUpdates($params, &$offset, $group_settings, $restricted_users) {
-        try {
-            $content = @file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getUpdates?" . http_build_query($params));
-            
-            if ($content === false) {
-                $this->logMessage("ERROR", "Failed to fetch updates from Telegram API.");
-                sleep(5); // Wait for 5 seconds before retrying
-                return;
-            }
 
-            $response = json_decode($content, true);
+        $updates = $this->fetchUpdates($params);
 
-            if (!isset($response["ok"]) || !$response["ok"]) {
-                $this->logMessage("ERROR", "Telegram API returned an error: " . json_encode($response));
-                sleep(5); // Wait for 5 seconds before retrying
-                return;
-            }
 
-            $updates = $response["result"];
 
             if (empty($updates)) {
                 // No updates, skip output
@@ -252,9 +238,6 @@ class TelegramDaemon {
             // Update the offset after processing all updates
             file_put_contents($this->file_offset, $offset);
 
-        } catch (Exception $e) {
-            $this->logMessage("ERROR", "Exception occurred while fetching updates: " . $e->getMessage());
-            sleep(5); // Wait for 5 seconds before retrying
         }
     }
 
