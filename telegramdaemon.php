@@ -224,6 +224,11 @@ class TelegramDaemon {
         }
     }
 
+    private function updateOffset($offset) {
+        file_put_contents($this->file_offset, $offset);
+        $this->logMessage("INFO", "Updated offset to ${offset}.");
+    }
+
     private function processUpdates($params, &$offset, $group_settings, $restricted_users) {
         $updates = $this->fetchUpdates($params);
         if ($updates === null || empty($updates)) {
@@ -256,8 +261,7 @@ class TelegramDaemon {
             }
         }
 
-        // Update the offset after processing all updates
-        file_put_contents($this->file_offset, $offset);
+        $this->updateOffset($offset);
     }
 
     public function run() {
