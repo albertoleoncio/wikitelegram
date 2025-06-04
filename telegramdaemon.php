@@ -224,11 +224,11 @@ class TelegramDaemon {
      * @return array|null The updates fetched from the Telegram API, or null on failure.
      */
     private function fetchUpdates($offset) {
-        $this->logMessage("DEBUG", "Fetching updates with offset: {$offset}.");
+        $this->logMessage("DEBUG", "Fetching updates with offset: {$offset} + 1.");
         $params = [
             'timeout' => 10,
             'allowed_updates' => '["chat_member","message","my_chat_member"]',
-            'offset' => $offset
+            'offset' => $offset + 1 // Increment offset to avoid fetching the same update again
         ];
 
         $result = null;
