@@ -112,6 +112,93 @@ class TelegramDaemon {
             }
         }
     }
+
+    private function handleNewChatMember($event) {
+        if ($event["chat_member"]["chat"]["type"] == "private") {
+            return; // Ignore unrelated chats
+        }
+
+        if ($event["chat_member"]["new_chat_member"]["user"]["is_bot"]) {
+            return; // Ignore bots
+        }
+
+        if ($event["chat_member"]["new_chat_member"]["status"] != "member") {
+            return; // Ignore non-members
+        }
+
+        $new_user = $event["chat_member"]["new_chat_member"]["user"]["username"] ?? '';
+        $new_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
+
+        try {
+            $ts_pw = posix_getpwuid(posix_getuid());
+            $ts_mycnf = parse_ini_file($ts_pw['dir'] . "/replica.my.cnf");
+            $con = mysqli_connect(
+                'tools.db.svc.eqiad.wmflabs',
+                $ts_mycnf['user'],
+                $ts_mycnf['password'],
+                $ts_mycnf['user'] . "__telegram"
+            );
+
+            $query = "SELECT * FROM `verifications` WHERE `t_id` = '$new_user_id'";
+            $result = mysqli_query($con, $query);
+            if (mysqli_num_rows($result) > 0) {
+                $row = mysqli_fetch_assoc($result);
+                $w_id = $row['w_id'];
+                if ($w_id != null) {
+                    $this->logMessage("INFO", "User ${new_user} (${new_user_id}) already verified as ${w_id}.");
+                    return;
+                }
+            }
+        } catch (Exception $e) {
+            $this->logMessage("ERROR", "Database connection error: " . $e->getMessage());
+            $this->logMessage("INFO", "Retrying to connect in 15 seconds.");
+            sleep(15);
+            exit;
+        }
+
+        // Get user status on Telegram
+        $params = [
+            'chat_id' => $event["chat_member"]["chat"]["id"],
+            'user_id' => $new_user_id
+        ];
+        $content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getChatMember?" . http_build_query($params));
+        $status = json_decode($content, true)["result"]["status"];
+
+        if ($status == "member") {
+            $params = [
+                'chat_id' => $event["chat_member"]["chat"]["id"],
+                'user_id' => $new_user_id,
+                "permissions" => [
+                    "can_send_messages" => false,
+                    "can_send_audios" => false,
+                    "can_send_documents" => false,
+                    "can_send_photos" => false,
+                    "can_send_videos" => false,
+                    "can_send_video_notes" => false,
+                    "can_send_voice_notes" => false,
+                    "can_send_polls" => false,
+                    "can_send_other_messages" => false,
+                    "can_add_web_page_previews" => false,
+                    "can_change_info" => false,
+                    "can_invite_users" => false,
+                    "can_pin_messages" => false,
+                    "can_manage_topics" => false,
+                ]
+            ];
+            $content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/restrictChatMember?" . http_build_query($params));
+            $content = json_decode($content, true);
+            if (isset($content["ok"])) {
+                $id = $event["chat_member"]["chat"]["id"];
+                $this->logMessage("INFO", "Restricted ${new_user} (${new_user_id}) in chat ${id}.");
+
+                // Add the restricted user to the file
+                file_put_contents($this->restricted_users_file, $new_user_id . PHP_EOL, FILE_APPEND);
+            } else {
+                $this->logMessage("ERROR", "Failed to restrict ${new_user} (${new_user_id}).");
+            }
+        }
+    }
+
     private function processUpdates($params, &$offset, $group_settings, $restricted_users) {
         try {
             $content = @file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getUpdates?" . http_build_query($params));
@@ -158,91 +245,7 @@ class TelegramDaemon {
 
                 // Handle new chat members
                 if (isset($event["chat_member"]["new_chat_member"])) {
-                    if ($event["chat_member"]["chat"]["type"] == "private") {
-                        continue; // Ignore unrelated chats
-                    }
-
-                    if ($event["chat_member"]["new_chat_member"]["user"]["is_bot"]) {
-                        continue; // Ignore bots
-                    }
-
-                    if ($event["chat_member"]["new_chat_member"]["status"] != "member") {
-                        continue; // Ignore non-members
-                    }
-
-                    $new_user = $event["chat_member"]["new_chat_member"]["user"]["username"] ?? '';
-                    $new_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
-
-                    try {
-
-                        $ts_pw = posix_getpwuid(posix_getuid());
-                        $ts_mycnf = parse_ini_file($ts_pw['dir'] . "/replica.my.cnf");
-                        $con = mysqli_connect(
-                            'tools.db.svc.eqiad.wmflabs',
-                            $ts_mycnf['user'],
-                            $ts_mycnf['password'],
-                            $ts_mycnf['user']."__telegram"
-                        );
-
-                        $query = "SELECT * FROM `verifications` WHERE `t_id` = '$new_user_id'";
-                        $result = mysqli_query($con, $query);
-                        if (mysqli_num_rows($result) > 0) {
-                            $row = mysqli_fetch_assoc($result);
-                            $w_id = $row['w_id'];
-                            if ($w_id != null) {
-                                $this->logMessage("INFO", "User ${new_user} (${new_user_id}) already verified as ${w_id}.");
-                                continue;
-                            }
-                        }
-
-                    } catch (Exception $e) {
-                        $this->logMessage("ERROR", "Database connection error: " . $e->getMessage());
-                        $this->logMessage("INFO", "Retrying to connect in 15 seconds.");
-                        sleep(15);
-                        exit;
-                    }
-
-                    # Get user status on Telegram
-                    $params = [
-                        'chat_id' => $event["chat_member"]["chat"]["id"],
-                        'user_id' => $new_user_id
-                    ];
-                    $content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/getChatMember?" . http_build_query($params));
-                    $status = json_decode($content, true)["result"]["status"];
-
-                    if ($status == "member") {
-                        $params = [
-                            'chat_id' => $event["chat_member"]["chat"]["id"],
-                            'user_id' => $new_user_id,
-                            "permissions" => [
-                                "can_send_messages" => false,
-                                "can_send_audios" => false,
-                                "can_send_documents" => false,
-                                "can_send_photos" => false,
-                                "can_send_videos" => false,
-                                "can_send_video_notes" => false,
-                                "can_send_voice_notes" => false,
-                                "can_send_polls" => false,
-                                "can_send_other_messages" => false,
-                                "can_add_web_page_previews" => false,
-                                "can_change_info" => false,
-                                "can_invite_users" => false,
-                                "can_pin_messages" => false,
-                                "can_manage_topics" => false,
-                            ]
-                        ];
-                        $content = file_get_contents("https://api.telegram.org/bot{$this->TelegramVerifyToken}/restrictChatMember?" . http_build_query($params));
-                        $content = json_decode($content, true);
-                        if (isset($content["ok"])) {
-                            $id = $event["chat_member"]["chat"]["id"];
-                            $this->logMessage("INFO", "Restricted ${new_user} (${new_user_id}) in chat ${id}.");
-
-                            // Add the restricted user to the file
-                            file_put_contents($this->restricted_users_file, $new_user_id . PHP_EOL, FILE_APPEND);
-                        } else {
-                            $this->logMessage("ERROR", "Failed to restrict ${new_user} (${new_user_id}).");
-                        }
-                    }
+                    $this->handleNewChatMember($event);
                 }
             }
 
