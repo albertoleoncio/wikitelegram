@@ -419,7 +419,7 @@ class TelegramDaemon {
      */
     private function updateOffset($offset) {
         file_put_contents($this->fileOffset, $offset);
-        $this->logMessage("INFO", "Updated offset to ${offset}.");
+        $this->logMessage("DEBUG", "Updated offset to ${offset}.");
     }
 
     /**
