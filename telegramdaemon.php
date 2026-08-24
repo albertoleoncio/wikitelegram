@@ -147,20 +147,20 @@ class TelegramDaemon {
             return;
         }
 
-        $groups_list = file_exists($this->groups_file) ? file($this->groups_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+        $groups_list = file_exists($this->groupsFile) ? file($this->groupsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
 
         if ($new_status === "member" || $new_status === "administrator") {
             // Add the group to the list if not already present
             if (!in_array($chat_id, $groups_list)) {
                 $groups_list[] = $chat_id;
-                file_put_contents($this->groups_file, implode(PHP_EOL, $groups_list) . PHP_EOL);
+                file_put_contents($this->groupsFile, implode(PHP_EOL, $groups_list) . PHP_EOL);
                 $this->logMessage("INFO", "Added group ${chat_id} to groups list.");
             }
         } elseif ($new_status === "kicked" || $new_status === "left") {
             // Remove the group from the list if present
             if (in_array($chat_id, $groups_list)) {
                 $groups_list = array_diff($groups_list, [$chat_id]);
-                file_put_contents($this->groups_file, implode(PHP_EOL, $groups_list) . PHP_EOL);
+                file_put_contents($this->groupsFile, implode(PHP_EOL, $groups_list) . PHP_EOL);
                 $this->logMessage("INFO", "Removed group ${chat_id} from groups list.");
             }
         }
