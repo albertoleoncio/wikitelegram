@@ -167,6 +167,25 @@ class TelegramDaemon {
     }
 
     /**
+     * Register a channel when a channel post arrives after its membership update was missed.
+     *
+     * @param array $event The update event from Telegram.
+     */
+    private function handleChannelPost($event) {
+        $chat = $event["channel_post"]["chat"];
+        $chat_id = $chat["id"];
+
+        $groups_list = file_exists($this->groupsFile) ? file($this->groupsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+        if (in_array($chat_id, $groups_list)) {
+            return;
+        }
+
+        $groups_list[] = $chat_id;
+        file_put_contents($this->groupsFile, implode(PHP_EOL, $groups_list) . PHP_EOL);
+        $this->logMessage("INFO", "Added channel ${chat_id} to groups list from channel post.");
+    }
+
+    /**
      * Handle messages from restricted users. This method checks if the message is from a user
      * that has been restricted in the group, and deletes the message if necessary.
      *
@@ -255,7 +274,7 @@ class TelegramDaemon {
         $this->logMessage("DEBUG", "Fetching updates with offset: {$offset} + 1.");
         $params = [
             'timeout' => 20,
-            'allowed_updates' => '["chat_member","message","my_chat_member"]',
+            'allowed_updates' => '["chat_member","message","my_chat_member","channel_post"]',
             'offset' => $offset + 1 // Increment offset to avoid fetching the same update again
         ];
 
@@ -435,6 +454,11 @@ class TelegramDaemon {
         // Handle my_chat_member updates
         if (isset($event["my_chat_member"])) {
             $this->handleMyChatMember($event);
+        }
+
+        // Register channels from later posts if their membership update was missed
+        if (isset($event["channel_post"])) {
+            $this->handleChannelPost($event);
         }
         
         // Check for messages from restricted users
