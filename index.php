@@ -147,28 +147,48 @@ class TelegramVerify extends WikiAphpiOAuth
      */
     public function newVerification($authData, $wikiuser)
     {
-        $stmt = $this->mysqli->prepare(
-            "REPLACE INTO verifications (t_id, t_date, t_username, w_username, w_id) VALUES (?, ?, ?, ?, ?)"
-        );
-
-        if (!$stmt) {
-            throw new UnexpectedValueException("Error in prepare statement:".$this->mysqli->error);
-        }
-
         $t_id = $authData['id'];
         $t_date = $authData['auth_date'];
         $t_username = $authData['username'] ?? null;
 
         $api_params = [
             "action"    => "query",
-            "format"    => "php",
+            "format"    => "json",
             "list"      => "users",
             "ususers"   => $wikiuser
         ];
         $api = "https://meta.wikimedia.org/w/api.php?" . http_build_query($api_params);
-        $api = unserialize(file_get_contents($api));
-        $w_username = $api["query"]["users"]["0"]["name"];
-        $w_id = $api["query"]["users"]["0"]["userid"];
+        $response = file_get_contents($api);
+        if ($response === false) {
+            throw new ContentRetrievalException("Não foi possível consultar a API da Wikimedia.");
+        }
+
+        $api = json_decode($response, true);
+        if (!is_array($api)) {
+            throw new ContentRetrievalException("Resposta JSON inválida da API da Wikimedia: " . json_last_error_msg());
+        }
+        if (isset($api['error'])) {
+            throw new ContentRetrievalException("Erro na API da Wikimedia: " . ($api['error']['info'] ?? 'erro desconhecido'));
+        }
+
+        $wikiUserData = $api['query']['users'][0] ?? null;
+        if (
+            !is_array($wikiUserData) ||
+            !isset($wikiUserData['name'], $wikiUserData['userid']) ||
+            !is_numeric($wikiUserData['userid'])
+        ) {
+            throw new ContentRetrievalException("A API da Wikimedia não retornou um usuário válido para {$wikiuser}.");
+        }
+
+        $w_username = $wikiUserData['name'];
+        $w_id = (int) $wikiUserData['userid'];
+
+        $stmt = $this->mysqli->prepare(
+            "REPLACE INTO verifications (t_id, t_date, t_username, w_username, w_id) VALUES (?, ?, ?, ?, ?)"
+        );
+        if (!$stmt) {
+            throw new UnexpectedValueException("Error in prepare statement:".$this->mysqli->error);
+        }
 
         $stmt->bind_param('iissi', $t_id, $t_date, $t_username, $w_username, $w_id);
         $stmt->execute();
