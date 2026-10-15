@@ -134,7 +134,7 @@ class TelegramVerify extends WikiAphpiOAuth
 
         foreach ($data['result'] as $admin) {
             // Ignore when admin is not a real admin, due to lack of admin rights in the group
-            if ($admin['can_restrict_members'] === false) {
+            if (isset($admin['can_restrict_members']) && $admin['can_restrict_members'] === false) {
                 continue;
             }
 
@@ -344,8 +344,8 @@ class TelegramVerify extends WikiAphpiOAuth
         $result = ['success' => false, 'message' => ''];
 
         // Query the database for the Telegram user
-        $stmt = $this->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ? OR w_username = ?");
-        $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser, $telegramUser);
+        $stmt = $this->mysqli->prepare("SELECT w_username, w_id, t_id, t_username FROM verifications WHERE t_id = ? OR t_username = ? OR w_username = ?");
+        $stmt->bind_param('sss', $response['result']['user']['id'], $telegramUser, $telegramUser);
         $stmt->execute();
         $dbResult = $stmt->get_result();
         $userData = $dbResult->fetch_assoc();
