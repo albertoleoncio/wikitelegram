@@ -84,6 +84,46 @@ class TelegramDaemon {
     }
 
     /**
+     * Make a Telegram API request without exposing the bot token through PHP warnings.
+     *
+     * @param string $method Telegram Bot API method.
+     * @param array $params Request parameters.
+     * @param string|null $error Receives a safe error description on failure.
+     * @return array|null The API response, or null when the request failed.
+     */
+    private function telegramApiRequest($method, array $params, &$error = null) {
+        $error = null;
+        $url = "https://api.telegram.org/bot{$this->telegramVerifyToken}/{$method}?" . http_build_query($params);
+        $context = stream_context_create([
+            'http' => [
+                'ignore_errors' => true,
+                'timeout' => 30
+            ]
+        ]);
+        $content = @file_get_contents($url, false, $context);
+
+        if ($content === false) {
+            $error = 'Could not connect to the Telegram API.';
+            return null;
+        }
+
+        $response = json_decode($content, true);
+        if (!is_array($response)) {
+            $error = 'The Telegram API returned an invalid response.';
+            return null;
+        }
+        if (empty($response['ok'])) {
+            $error = $response['description'] ?? 'The Telegram API rejected the request.';
+            if ($this->telegramVerifyToken !== '') {
+                $error = str_replace($this->telegramVerifyToken, '[redacted]', $error);
+            }
+            return null;
+        }
+
+        return $response;
+    }
+
+    /**
      * Load group settings from the groups file. This method reads the file containing
      * group IDs and their delete message settings, returning an associative array.
      *
@@ -220,13 +260,11 @@ class TelegramDaemon {
             'chat_id' => $chat_id,
             'message_id' => $message_id
         ];
-        $delete_content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/deleteMessage?" . http_build_query($delete_params));
-        $delete_result = json_decode($delete_content, true);
-
-        if (isset($delete_result["ok"])) {
+        $delete_result = $this->telegramApiRequest('deleteMessage', $delete_params, $error);
+        if ($delete_result !== null) {
             $this->logMessage("INFO", "Deleted message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
         } else {
-            $this->logMessage("ERROR", "Failed to delete message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}.");
+            $this->logMessage("ERROR", "Failed to delete message ${message_id} from restricted user ${message_user_id} in chat ${chat_id}: {$error}");
         }
     }
 
@@ -281,23 +319,19 @@ class TelegramDaemon {
         $result = null;
 
         try {
-            $content = @file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/getUpdates?" . http_build_query($params));
-            
-            if ($content === false) {
-                $this->logMessage("ERROR", "Failed to fetch updates from Telegram API.");
+            $response = $this->telegramApiRequest('getUpdates', $params, $error);
+            if ($response === null) {
+                $this->logMessage("ERROR", "Failed to fetch updates from Telegram API: {$error}");
                 sleep(5); // Wait for 5 seconds before retrying
             } else {
-                $response = json_decode($content, true);
-
-                if (!isset($response["ok"]) || !$response["ok"]) {
-                    $this->logMessage("ERROR", "Telegram API returned an error: " . json_encode($response));
-                    sleep(5); // Wait for 5 seconds before retrying
-                } else {
-                    $result = $response["result"];
-                }
+                $result = $response["result"] ?? [];
             }
         } catch (Exception $e) {
-            $this->logMessage("ERROR", "Exception occurred while fetching updates: " . $e->getMessage());
+            $message = $e->getMessage();
+            if ($this->telegramVerifyToken !== '') {
+                $message = str_replace($this->telegramVerifyToken, '[redacted]', $message);
+            }
+            $this->logMessage("ERROR", "Exception occurred while fetching updates: " . $message);
         }
 
         $this->logMessage("DEBUG", "Fetched updates: " . json_encode($result));
@@ -334,14 +368,12 @@ class TelegramDaemon {
             ]
         ];
 
-        $content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/restrictChatMember?" . http_build_query($params));
-        $response = json_decode($content, true);
-
-        if (isset($response["ok"]) && $response["ok"]) {
+        $response = $this->telegramApiRequest('restrictChatMember', $params, $error);
+        if ($response !== null) {
             $this->logMessage("INFO", "Restricted ${username} (${user_id}) in chat ${chat_id}.");
             file_put_contents($this->restrictedUsersFile, $user_id . PHP_EOL, FILE_APPEND);
         } else {
-            $this->logMessage("ERROR", "Failed to restrict ${username} (${user_id}) in chat ${chat_id}.");
+            $this->logMessage("ERROR", "Failed to restrict ${username} (${user_id}) in chat ${chat_id}: {$error}");
         }
     }
 
@@ -378,8 +410,12 @@ class TelegramDaemon {
             'chat_id' => $event["chat_member"]["chat"]["id"],
             'user_id' => $new_user_id
         ];
-        $content = file_get_contents("https://api.telegram.org/bot{$this->telegramVerifyToken}/getChatMember?" . http_build_query($params));
-        $status = json_decode($content, true)["result"]["status"];
+        $response = $this->telegramApiRequest('getChatMember', $params, $error);
+        if ($response === null || !isset($response['result']['status'])) {
+            $this->logMessage("ERROR", "Could not determine Telegram membership status for user {$new_user_id}: {$error}");
+            return;
+        }
+        $status = $response['result']['status'];
 
         if ($status == "member") {
             $this->restrictUser($event["chat_member"]["chat"]["id"], $new_user_id, $new_user);

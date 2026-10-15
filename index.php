@@ -49,6 +49,14 @@ class TelegramVerify extends WikiAphpiOAuth
      * @return array The valid authorization data from Telegram.
      */
     public function checkTelegramAuthorization($auth_data, $telegramVerifyToken) {
+        if (
+            !isset($auth_data['hash'], $auth_data['auth_date']) ||
+            !is_string($auth_data['hash']) ||
+            !is_numeric($auth_data['auth_date'])
+        ) {
+            throw new ContentRetrievalException('Telegram authentication data is incomplete.');
+        }
+
         $check_hash = $auth_data['hash'];
         unset($auth_data['hash']);
         unset($auth_data['channel']);
@@ -56,10 +64,10 @@ class TelegramVerify extends WikiAphpiOAuth
         $data_check_string = urldecode(http_build_query($auth_data, "", "\n"));
         $secret_key = hash('sha256', $telegramVerifyToken, true);
         $hash = hash_hmac('sha256', $data_check_string, $secret_key);
-        if (strcmp($hash, $check_hash) !== 0) {
+        if (!hash_equals($hash, $check_hash)) {
             throw new ContentRetrievalException('Data is NOT from Telegram');
         }
-        if ((time() - $auth_data['auth_date']) > 86400) {
+        if ((time() - (int) $auth_data['auth_date']) > 86400 || (int) $auth_data['auth_date'] > time() + 60) {
             throw new ContentRetrievalException('Data from Telegram is outdated');
         }
         return $auth_data;
@@ -106,25 +114,80 @@ class TelegramVerify extends WikiAphpiOAuth
      * The method returns an array of usernames of the administrators.
      *
      * @param string $telegramVerifyToken The verification token provided by Telegram.
-     * @param array  $lines               The list of users from the 'verifications' table.
+     * @param array  $verifiedUsers       The list of users from the 'verifications' table.
      * @param string $channelId           The ID of the Telegram channel.
      *
-     * @return array An array of usernames of the administrators.
+     * @return array|null An array of usernames, or null if the Telegram API request failed.
      */
-    public function getAdmins($telegramVerifyToken, $lines, $channelId)
+    public function getAdmins($telegramVerifyToken, $verifiedUsers, $channelId, &$error = null)
     {
         $admins = [];
-        $api = "https://api.telegram.org/bot" . $telegramVerifyToken . "/getChatAdministrators?chat_id=" . $channelId;
-        $response = file_get_contents($api);
-        $data = json_decode($response, true);
+        $data = $this->telegramApiRequest(
+            $telegramVerifyToken,
+            'getChatAdministrators',
+            ['chat_id' => $channelId],
+            $error
+        );
+        if ($data === null || !isset($data['result']) || !is_array($data['result'])) {
+            return null;
+        }
+
         foreach ($data['result'] as $admin) {
-            foreach ($lines as $line) {
-                if ($admin['user']['id'] == $line['t_id']) {
-                    $admins[] = $line['w_username'];
+            // Ignore when admin is not a real admin, due to lack of admin rights in the group
+            if ($admin['can_restrict_members'] === false) {
+                continue;
+            }
+
+            foreach ($verifiedUsers as $verifiedUser) {
+                if (isset($admin['user']['id'], $verifiedUser['t_id']) && $admin['user']['id'] == $verifiedUser['t_id']) {
+                    $admins[] = $verifiedUser['w_username'];
                 }
             }
         }
         return $admins;
+    }
+
+    /**
+     * Makes a Telegram Bot API request without allowing warnings to expose the bot token.
+     *
+     * @param string      $telegramVerifyToken The Telegram bot token.
+     * @param string      $method              The Bot API method.
+     * @param array       $params              Request parameters.
+     * @param string|null $error               Receives a safe error description on failure.
+     *
+     * @return array|null The successful API response, or null on failure.
+     */
+    private function telegramApiRequest($telegramVerifyToken, $method, array $params, &$error = null)
+    {
+        $error = null;
+        $url = "https://api.telegram.org/bot{$telegramVerifyToken}/{$method}?" . http_build_query($params);
+        $context = stream_context_create([
+            'http' => [
+                'ignore_errors' => true,
+                'timeout' => 10
+            ]
+        ]);
+        $response = @file_get_contents($url, false, $context);
+
+        if ($response === false) {
+            $error = 'Could not connect to the Telegram API.';
+            return null;
+        }
+
+        $data = json_decode($response, true);
+        if (!is_array($data)) {
+            $error = 'The Telegram API returned an invalid response.';
+            return null;
+        }
+        if (empty($data['ok'])) {
+            $error = $data['description'] ?? 'The Telegram API rejected the request.';
+            if ($telegramVerifyToken !== '') {
+                $error = str_replace($telegramVerifyToken, '[redacted]', $error);
+            }
+            return null;
+        }
+
+        return $data;
     }
 
     /**
@@ -158,7 +221,7 @@ class TelegramVerify extends WikiAphpiOAuth
             "ususers"   => $wikiuser
         ];
         $api = "https://meta.wikimedia.org/w/api.php?" . http_build_query($api_params);
-        $response = file_get_contents($api);
+        $response = @file_get_contents($api);
         if ($response === false) {
             throw new ContentRetrievalException("Não foi possível consultar a API da Wikimedia.");
         }
@@ -249,10 +312,18 @@ class TelegramVerify extends WikiAphpiOAuth
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($curl, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
         curl_setopt($curl, CURLOPT_POSTFIELDS, json_encode($params));
+        curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($curl, CURLOPT_TIMEOUT, 10);
         $response = curl_exec($curl);
+        $curlError = curl_error($curl);
         curl_close($curl);
 
-        return json_decode($response, true);
+        if ($response === false) {
+            return ['ok' => false, 'description' => 'Telegram API request failed: ' . $curlError];
+        }
+
+        $result = json_decode($response, true);
+        return is_array($result) ? $result : ['ok' => false, 'description' => 'Invalid response from Telegram API.'];
     }
 
     /**
@@ -290,10 +361,14 @@ class TelegramVerify extends WikiAphpiOAuth
         }
 
         // The step is important to avoid admins to verify users from other groups
-        $api = "https://api.telegram.org/bot${telegramVerifyToken}/getChatMember?chat_id=${channelId}&user_id=${telegramUser}";
-        $response = json_decode(file_get_contents($api), true);
+        $response = $this->telegramApiRequest(
+            $telegramVerifyToken,
+            'getChatMember',
+            ['chat_id' => $channelId, 'user_id' => $telegramUser],
+            $apiError
+        );
 
-        if (isset($response['ok']) && $response['ok'] && isset($response['result']['user'])) {
+        if (isset($response['result']['user'])) {
             $stmt = $this->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
             $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
             $stmt->execute();
@@ -308,7 +383,7 @@ class TelegramVerify extends WikiAphpiOAuth
                 $result['message'] = 'User not found in the database.';
             }
         } else {
-            $result['message'] = 'User not found in the Telegram group.';
+            $result['message'] = $apiError ?? 'User not found in the Telegram group.';
         }
 
         return $result;
@@ -319,35 +394,56 @@ class TelegramVerify extends WikiAphpiOAuth
      *
      * @param array $groups_list List of group IDs to fetch information for.
      * @param string $telegramVerifyToken Telegram bot token for API requests.
+     * @param array  $errors              Receives errors for groups that could not be loaded.
      *
      * @return array An array of channels with their ID, name, and photo (base64 encoded).
      */
-    public function getChannels(array $groups_list, string $telegramVerifyToken): array
+    public function getChannels(array $groups_list, string $telegramVerifyToken, &$errors = []): array
     {
         $channels = [];
+        $errors = [];
+        $context = stream_context_create([
+            'http' => [
+                'ignore_errors' => true,
+                'timeout' => 10
+            ]
+        ]);
+
         foreach ($groups_list as $groupId) {
-            $api = "https://api.telegram.org/bot" . $telegramVerifyToken . "/getChat?chat_id=" . $groupId;
-            $response = file_get_contents($api);
-            $data = json_decode($response, true);
-            if (isset($data['ok']) && $data['ok']) {
-                $photoBase64 = null;
-                if (isset($data['result']['photo']['small_file_id'])) {
-                    $fileApi = "https://api.telegram.org/bot" . $telegramVerifyToken . "/getFile?file_id=" . $data['result']['photo']['small_file_id'];
-                    $fileResponse = file_get_contents($fileApi);
-                    $fileData = json_decode($fileResponse, true);
-                    if (isset($fileData['ok']) && $fileData['ok']) {
-                        $filePath = $fileData['result']['file_path'];
-                        $fileUrl = "https://api.telegram.org/file/bot" . $telegramVerifyToken . "/" . $filePath;
-                        $photoContent = file_get_contents($fileUrl);
+            $data = $this->telegramApiRequest(
+                $telegramVerifyToken,
+                'getChat',
+                ['chat_id' => $groupId],
+                $error
+            );
+            if ($data === null || !isset($data['result']) || !is_array($data['result'])) {
+                $errors[] = "Group {$groupId}: {$error}";
+                continue;
+            }
+
+            $photoBase64 = null;
+            if (isset($data['result']['photo']['small_file_id'])) {
+                $fileData = $this->telegramApiRequest(
+                    $telegramVerifyToken,
+                    'getFile',
+                    ['file_id' => $data['result']['photo']['small_file_id']],
+                    $photoError
+                );
+                if (isset($fileData['result']['file_path'])) {
+                    $filePath = $fileData['result']['file_path'];
+                    $fileUrl = "https://api.telegram.org/file/bot" . $telegramVerifyToken . "/" . $filePath;
+                    $photoContent = @file_get_contents($fileUrl, false, $context);
+                    if ($photoContent !== false) {
                         $photoBase64 = base64_encode($photoContent);
                     }
                 }
-                $channels[] = [
-                    'id' => $groupId,
-                    'name' => $data['result']['title'] ?? 'Unknown',
-                    'photo' => $photoBase64
-                ];
             }
+
+            $channels[] = [
+                'id' => $groupId,
+                'name' => $data['result']['title'] ?? 'Unknown',
+                'photo' => $photoBase64
+            ];
         }
         return $channels;
     }
@@ -368,10 +464,17 @@ $verify = new TelegramVerify(
 );
 
 // Retrieve verification results from the 'verifications' table.
-$lines = $verify->results();
+$verifiedUsers = $verify->results();
 
 // Check if the user is logged in through OAuth.
-$user = $verify->checkLogin();
+$user = false;
+$loginError = null;
+try {
+    $user = $verify->checkLogin();
+} catch (ContentRetrievalException $e) {
+    http_response_code(200);
+    $loginError = 'Wikimedia could not confirm your login right now. Please retry the login.';
+}
 
 // Get the list of groups from the 'groups_list.inc' file.
 // This file should contain a list of group IDs, one per line.
@@ -398,21 +501,40 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
     $channelId = $_GET['channel'];
 
     // Get administrators of the chat
-    $admins = $verify->getAdmins($telegramVerifyToken, $lines, $channelId);
+    $admins = $verify->getAdmins($telegramVerifyToken, $verifiedUsers, $channelId, $adminError);
+    $telegramActionError = $admins === null
+        ? 'Telegram could not provide the administrator list (' . $adminError . '). Verification can continue, but Telegram permissions will not be changed.'
+        : null;
 
     // Check if the "auth_date" parameter from Telegram is present in the GET request.
     // In this case, the user is at the last step of the verification process, after Telegram authentication.
     if (isset($_GET["auth_date"])) {
+        if (!is_array($user) || empty($user['username'])) {
+            $verificationError = $loginError ?? 'Please sign in to Wikimedia again before verifying with Telegram.';
+        } else {
+            try {
+                $validatedAuthData = $verify->checkTelegramAuthorization($_GET, $telegramVerifyToken);
+            } catch (ContentRetrievalException $e) {
+                http_response_code(200);
+                $verificationError = 'Telegram authentication could not be verified or has expired. Please restart the Telegram login.';
+            }
 
-        // Retrieve and verify Telegram authorization data from the GET parameters.
-        $authData = $verify->checkTelegramAuthorization($_GET, $telegramVerifyToken);
+            if (isset($validatedAuthData)) {
+                try {
+                    $verify->newVerification($validatedAuthData, $user['username']);
+                    $authData = $validatedAuthData;
+                } catch (ContentRetrievalException $e) {
+                    http_response_code(200);
+                    $verificationError = 'The verification could not be saved right now. Please try again later.';
+                }
 
-        // Add a new verification entry for the authenticated user.
-        $verify->newVerification($authData, $user['username']);
-
-        // Unmute the Telegram user in the group chat, if they are not an admin.
-        if (!in_array($user['username'], $admins)) {
-            $verify->unmuteTelegramUser($authData, $telegramVerifyToken, $channelId);
+                if (isset($authData) && is_array($admins) && !in_array($user['username'], $admins, true)) {
+                    $unmuteResult = $verify->unmuteTelegramUser($authData, $telegramVerifyToken, $channelId);
+                    if (empty($unmuteResult['ok'])) {
+                        $telegramActionError = 'Verification was saved, but Telegram could not update your group permissions. Please contact a group administrator.';
+                    }
+                }
+            }
         }
     }
 
@@ -444,17 +566,18 @@ if (isset($_GET['channel']) && in_array($_GET['channel'], $groups_list)) {
 } else {
 
     // If no channel is selected, retrieve the list of channels from the Telegram API.
-    $channels = $verify->getChannels($groups_list, $telegramVerifyToken);
-
-    // Check if the channels array is empty.
-    // If it is empty, display an error message and exit.
-    if (empty($channels)) {
-        die("Error: Unable to retrieve channel information.");
-    }
+    $channelErrors = [];
+    $channels = $verify->getChannels($groups_list, $telegramVerifyToken, $channelErrors);
 }
 
 // Small API to check an user in the group with a wiki username
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'checkUser' && in_array($user['username'], $admins)) {
+if (
+    $_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_POST['action'], $user['username'], $admins) &&
+    $_POST['action'] === 'checkUser' &&
+    is_array($admins) &&
+    in_array($user['username'], $admins, true)
+) {
     $telegramUser = trim($_POST['telegramUser']); // Trim whitespace
     $verificationResult = $verify->verifyTelegramUser($telegramUser, $telegramVerifyToken, $channelId);
     if ($verificationResult['success']) {
@@ -652,6 +775,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <h5 class="w3-center w3-padding-48"><span class="w3-tag w3-wide">WikiVerifyBot</span></h5>
                 <div class="w3-row-padding w3-center w3-padding-8 w3-margin-top">
                     <div class="w3-container w3-margin w3-padding-12 w3-card w3-center">
+                        <?php if ($loginError !== null): ?>
+                            <div class="w3-panel w3-pale-yellow w3-left-align" role="alert">
+                                <?php echo htmlspecialchars($loginError, ENT_QUOTES, 'UTF-8'); ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (isset($verificationError)): ?>
+                            <div class="w3-panel w3-pale-yellow w3-left-align" role="alert">
+                                <?php echo htmlspecialchars($verificationError, ENT_QUOTES, 'UTF-8'); ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (isset($telegramActionError)): ?>
+                            <div class="w3-panel w3-pale-yellow w3-left-align" role="alert">
+                                <?php echo htmlspecialchars($telegramActionError, ENT_QUOTES, 'UTF-8'); ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if (!empty($channelErrors)): ?>
+                            <div class="w3-panel w3-pale-yellow w3-left-align" role="alert">
+                                <p>Some configured groups could not be loaded from Telegram. Check the group IDs and the bot's access to those groups.</p>
+                                <ul>
+                                    <?php foreach ($channelErrors as $channelError): ?>
+                                        <li><?php echo htmlspecialchars($channelError, ENT_QUOTES, 'UTF-8'); ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        <?php endif; ?>
                         <?php if(isset($channels) && !empty($channels)): ?>
                             <!-- Step 0: Channel Selection -->
                             <div class='loader' id='loader'></div>
@@ -690,6 +838,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     document.getElementById('menu').style.display = 'block';
                                 }
                             </script>
+                        <?php elseif(isset($channels)): ?>
+                            <p><?php echo empty($groups_list) ? 'No groups are configured.' : 'No configured groups are currently available from Telegram.'; ?></p>
                         <?php elseif(isset($authData)): ?>
                             <!-- Step 3: Verification Success -->
                             <div class="stepper-wrapper">
