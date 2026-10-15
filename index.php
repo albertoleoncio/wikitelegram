@@ -396,7 +396,7 @@ class TelegramVerify extends WikiAphpiOAuth
      * @param string $telegramVerifyToken Telegram bot token for API requests.
      * @param array  $errors              Receives errors for groups that could not be loaded.
      *
-     * @return array An array of channels with their ID, name, and photo (base64 encoded).
+     * @return array An array of channels with their ID, name, and photo URL.
      */
     public function getChannels(array $groups_list, string $telegramVerifyToken, &$errors = []): array
     {
@@ -408,6 +408,11 @@ class TelegramVerify extends WikiAphpiOAuth
                 'timeout' => 10
             ]
         ]);
+        $photoCacheDirectory = __DIR__ . '/channel_photos';
+        if (!is_dir($photoCacheDirectory) && !@mkdir($photoCacheDirectory, 0755, true) && !is_dir($photoCacheDirectory)) {
+            error_log("Could not create channel photo cache directory: {$photoCacheDirectory}");
+            $photoCacheDirectory = null;
+        }
 
         foreach ($groups_list as $groupId) {
             $data = $this->telegramApiRequest(
@@ -422,19 +427,51 @@ class TelegramVerify extends WikiAphpiOAuth
             }
 
             $photoBase64 = null;
+            $photoUrl = null;
             if (isset($data['result']['photo']['small_file_id'])) {
-                $fileData = $this->telegramApiRequest(
-                    $telegramVerifyToken,
-                    'getFile',
-                    ['file_id' => $data['result']['photo']['small_file_id']],
-                    $photoError
-                );
-                if (isset($fileData['result']['file_path'])) {
-                    $filePath = $fileData['result']['file_path'];
-                    $fileUrl = "https://api.telegram.org/file/bot" . $telegramVerifyToken . "/" . $filePath;
-                    $photoContent = @file_get_contents($fileUrl, false, $context);
-                    if ($photoContent !== false) {
-                        $photoBase64 = base64_encode($photoContent);
+                $photo = $data['result']['photo'];
+                $photoVersion = $photo['small_file_unique_id'] ?? $photo['small_file_id'];
+                $cacheFileName = hash('sha256', (string)$groupId) . '-' . hash('sha256', (string)$photoVersion) . '.jpg';
+                $cacheFilePath = $photoCacheDirectory === null
+                    ? null
+                    : $photoCacheDirectory . '/' . $cacheFileName;
+
+                if ($cacheFilePath !== null && is_file($cacheFilePath)) {
+                    $photoUrl = 'channel_photos/' . $cacheFileName;
+                } else {
+                    $fileData = $this->telegramApiRequest(
+                        $telegramVerifyToken,
+                        'getFile',
+                        ['file_id' => $photo['small_file_id']],
+                        $photoError
+                    );
+                    if (isset($fileData['result']['file_path'])) {
+                        $filePath = $fileData['result']['file_path'];
+                        $fileUrl = "https://api.telegram.org/file/bot" . $telegramVerifyToken . "/" . $filePath;
+                        $photoContent = @file_get_contents($fileUrl, false, $context);
+                        if ($photoContent !== false) {
+                            if ($cacheFilePath !== null) {
+                                $temporaryFile = @tempnam($photoCacheDirectory, '.channel-photo-');
+                                if ($temporaryFile !== false) {
+                                    $written = file_put_contents($temporaryFile, $photoContent, LOCK_EX);
+                                    if ($written === strlen($photoContent) && @rename($temporaryFile, $cacheFilePath)) {
+                                        $photoUrl = 'channel_photos/' . $cacheFileName;
+                                    } else {
+                                        @unlink($temporaryFile);
+                                        if (is_file($cacheFilePath)) {
+                                            $photoUrl = 'channel_photos/' . $cacheFileName;
+                                        } else {
+                                            error_log("Could not write channel photo cache file: {$cacheFilePath}");
+                                        }
+                                    }
+                                } else {
+                                    error_log("Could not create temporary channel photo cache file in: {$photoCacheDirectory}");
+                                }
+                            }
+                            if ($photoUrl === null) {
+                                $photoBase64 = base64_encode($photoContent);
+                            }
+                        }
                     }
                 }
             }
@@ -442,7 +479,7 @@ class TelegramVerify extends WikiAphpiOAuth
             $channels[] = [
                 'id' => $groupId,
                 'name' => $data['result']['title'] ?? 'Unknown',
-                'photo' => $photoBase64
+                'photo' => $photoUrl ?? ($photoBase64 === null ? null : 'data:image/jpeg;base64,' . $photoBase64)
             ];
         }
         return $channels;
@@ -814,7 +851,7 @@ if (
                                                 <?php foreach ($channels as $channel): ?>
                                                     <div class='dropdown-option' data-value='<?php echo htmlspecialchars($channel['id']); ?>'>
                                                         <?php if ($channel['photo']): ?>
-                                                            <img src='data:image/jpeg;base64,<?php echo $channel['photo']; ?>' alt='Channel' style='width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;'>
+                                                            <img src='<?php echo htmlspecialchars($channel['photo'], ENT_QUOTES, 'UTF-8'); ?>' alt='Channel' style='width: 20px; height: 20px; vertical-align: middle; margin-right: 5px;'>
                                                         <?php endif; ?>
                                                         <?php echo htmlspecialchars($channel['name']); ?>
                                                     </div>

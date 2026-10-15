@@ -20,6 +20,7 @@ This repository contains a Telegram bot designed to handle user verification and
 - `WikiAphpi/`: Contains helper classes and functions for interacting with the MediaWiki API.
 - `tokens.inc`: Configuration file containing API tokens and credentials.
 - `groups_list.inc`: Stores the list of Telegram group IDs managed by the bot. Now supports per-group message deletion settings. Each line should be in the format `group_id:true` or `group_id:false` to enable or disable message deletion for restricted users in that group.
+- `channel_photos/`: Created automatically to cache Telegram group photos. The web server must be able to write to this directory; cached photos are refreshed when Telegram reports a new photo.
 - `restricted_users.inc`: Stores the list of restricted Telegram user IDs.
 - `telegram_offset.inc`: Stores the last update from Telegram stream.
 
