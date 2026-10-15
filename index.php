@@ -343,47 +343,37 @@ class TelegramVerify extends WikiAphpiOAuth
         $telegramUser = trim($telegramUser); // Trim whitespace
         $result = ['success' => false, 'message' => ''];
 
-        if (!is_numeric($telegramUser)) {
-            // Check the database for the username and retrieve the Telegram ID
-            $stmt = $this->mysqli->prepare("SELECT t_id FROM verifications WHERE t_username = ?");
-            $stmt->bind_param('s', $telegramUser);
-            $stmt->execute();
-            $dbResult = $stmt->get_result();
-            $row = $dbResult->fetch_assoc();
-            $stmt->close();
+        // Query the database for the Telegram user
+        $stmt = $this->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ? OR w_username = ?");
+        $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser, $telegramUser);
+        $stmt->execute();
+        $dbResult = $stmt->get_result();
+        $userData = $dbResult->fetch_assoc();
+        $stmt->close();
 
-            if ($row) {
-                $telegramUser = $row['t_id']; // Use the Telegram ID from the database
-            } else {
-                $result['message'] = 'Username not found in the database.';
-                return $result;
+        if ($userData) {
+
+            // The step is important to avoid admins to verify users from other groups
+            $checkUserInGroup = $this->telegramApiRequest(
+                $telegramVerifyToken,
+                'getChatMember',
+                ['chat_id' => $channelId, 'user_id' => $userData['t_id']],
+                $apiError
+            );
+            if (!isset($checkUserInGroup['result']['user'])) {
+                $result['message'] = 'User not found in the Telegram group.';
             }
-        }
 
-        // The step is important to avoid admins to verify users from other groups
-        $response = $this->telegramApiRequest(
-            $telegramVerifyToken,
-            'getChatMember',
-            ['chat_id' => $channelId, 'user_id' => $telegramUser],
-            $apiError
-        );
-
-        if (isset($response['result']['user'])) {
-            $stmt = $this->mysqli->prepare("SELECT w_username, w_id FROM verifications WHERE t_id = ? OR t_username = ?");
-            $stmt->bind_param('is', $response['result']['user']['id'], $telegramUser);
-            $stmt->execute();
-            $dbResult = $stmt->get_result();
-            $userData = $dbResult->fetch_assoc();
-            $stmt->close();
-
-            if ($userData) {
-                $result['success'] = true;
-                $result['data'] = ['wikiUsername' => $userData['w_username'], 'wikiUserId' => $userData['w_id']];
-            } else {
-                $result['message'] = 'User not found in the database.';
-            }
+            // Return the wiki user details if the verification is successful
+            $result['success'] = true;
+            $result['data'] = [
+                'wikiUsername' => $userData['w_username'],
+                'wikiUserId' => $userData['w_id'],
+                'telegramId' => $userData['t_id'],
+                'telegramUsername' => $userData['t_username']
+            ];
         } else {
-            $result['message'] = $apiError ?? 'User not found in the Telegram group.';
+            $result['message'] = $apiError ?? 'User not found in the verification database.';
         }
 
         return $result;
@@ -976,6 +966,8 @@ if (
                                 <h4>User Information:</h4>
                                 <p><strong>Wiki Account:</strong> <span id="wikiUsername"></span></p>
                                 <p><strong>Wiki ID:</strong> <span id="wikiUserId"></span></p>
+                                <p><strong>Telegram ID:</strong> <span id="telegramId"></span></p>
+                                <p><strong>Telegram Username:</strong> <span id="telegramUsername"></span></p>
                             </div>
                             <hr>
                             <form id="deleteSettingForm" method="POST" action="<?=$_SERVER['SCRIPT_NAME']?>?channel=<?=$channelId?>">
@@ -995,6 +987,8 @@ if (
                                             if (response.success) {
                                                 $('#wikiUsername').text(response.data.wikiUsername);
                                                 $('#wikiUserId').text(response.data.wikiUserId);
+                                                $('#telegramId').text(response.data.telegramId);
+                                                $('#telegramUsername').text(response.data.telegramUsername);
                                                 $('#userInfo').show();
                                             } else {
                                                 alert(response.message);
