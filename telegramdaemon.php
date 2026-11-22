@@ -124,6 +124,24 @@ class TelegramDaemon {
     }
 
     /**
+     * Send a text message to a Telegram chat.
+     *
+     * @param int|string $chat_id Telegram chat ID.
+     * @param string $text Message text.
+     */
+    private function sendMessage($chat_id, $text) {
+        $response = $this->telegramApiRequest('sendMessage', [
+            'chat_id' => $chat_id,
+            'text' => $text,
+            'disable_web_page_preview' => 'true'
+        ], $error);
+
+        if ($response === null) {
+            $this->logMessage("ERROR", "Failed to send a bot reply: {$error}");
+        }
+    }
+
+    /**
      * Load group settings from the groups file. This method reads the file containing
      * group IDs and their delete message settings, returning an associative array.
      *
@@ -207,6 +225,143 @@ class TelegramDaemon {
     }
 
     /**
+     * Respond to commands sent to the bot in a private chat.
+     *
+     * @param array $message Telegram message.
+     */
+    private function handlePrivateMessage($message) {
+        if (!isset($message["from"]["id"], $message["text"])) {
+            return;
+        }
+
+        $text = trim($message["text"]);
+        if (!preg_match('/^\/(start|status|help|verify)(?:@WikiVerifyBot)?(?:\s|$)/i', $text, $matches)) {
+            return;
+        }
+
+        switch (strtolower($matches[1])) {
+            case "start":
+            case "help":
+                $this->sendMessage(
+                    $message["chat"]["id"],
+                    "Hello! WikiVerifyBot helps verify Wikimedia accounts for participation in groups.\n\n" .
+                    "Use /status to check your verification status or /verify to get started. " .
+                    "Verification is completed on the website: https://wikitelegram.toolforge.org/"
+                );
+                break;
+            case "verify":
+                $this->sendMessage(
+                    $message["chat"]["id"],
+                    "To verify your account, visit the website and select your group: https://wikitelegram.toolforge.org/"
+                );
+                break;
+            case "status":
+                $this->sendPrivateVerificationStatus($message);
+                break;
+        }
+    }
+
+    /**
+     * Show the verification status to the user in a private chat.
+     *
+     * @param array $message Telegram message.
+     */
+    private function sendPrivateVerificationStatus($message) {
+        $verification = $this->queryUserDatabase($message["from"]["id"], $error, false);
+        if ($error !== null) {
+            $this->sendMessage(
+                $message["chat"]["id"],
+                "I couldn't check your status right now. Please try again later."
+            );
+            return;
+        }
+
+        if ($verification === null) {
+            $this->sendMessage(
+                $message["chat"]["id"],
+                "Your account isn't verified yet. To get started, visit https://wikitelegram.toolforge.org/"
+            );
+            return;
+        }
+
+        $wiki_username = $verification["w_username"] ?? "conta Wikimedia";
+        $verified_at = isset($verification["t_date"])
+            ? gmdate("Y-m-d H:i", (int) $verification["t_date"]) . " UTC"
+            : "date unavailable";
+        $this->sendMessage(
+            $message["chat"]["id"],
+            "Your account is verified.\nWikimedia account: {$wiki_username}\nVerified on: {$verified_at}"
+        );
+    }
+
+    /**
+     * Handle the group administrator diagnostics command.
+     *
+     * @param array $message Telegram message.
+     * @param array $group_settings Group settings indexed by chat ID.
+     */
+    private function handleGroupCommand($message, $group_settings) {
+        if (
+            !isset($message["chat"]["id"], $message["from"]["id"], $message["text"]) ||
+            !preg_match('/^\/verifybot(?:@WikiVerifyBot)?(?:\s+status)?$/i', trim($message["text"])) ||
+            !isset($group_settings[$message["chat"]["id"]])
+        ) {
+            return;
+        }
+
+        $chat_id = $message["chat"]["id"];
+        $admin_check = $this->telegramApiRequest('getChatMember', [
+            'chat_id' => $chat_id,
+            'user_id' => $message["from"]["id"]
+        ], $error);
+
+        if ($admin_check === null || !isset($admin_check["result"]["status"])) {
+            $this->logMessage("ERROR", "Could not check group command permissions: {$error}");
+            $this->sendMessage($chat_id, "I couldn't confirm your permissions right now. Please try again later.");
+            return;
+        }
+
+        if (!in_array($admin_check["result"]["status"], ["creator", "administrator"], true)) {
+            $this->sendMessage($chat_id, "Only group administrators can view this diagnostic.");
+            return;
+        }
+
+        $bot_info = $this->telegramApiRequest('getMe', [], $error);
+        if ($bot_info === null || !isset($bot_info["result"]["id"])) {
+            $this->logMessage("ERROR", "Could not identify the bot for group diagnostics: {$error}");
+            $this->sendMessage($chat_id, "I couldn't check the bot's permissions right now. Please try again later.");
+            return;
+        }
+
+        $bot_member = $this->telegramApiRequest('getChatMember', [
+            'chat_id' => $chat_id,
+            'user_id' => $bot_info["result"]["id"]
+        ], $error);
+        if ($bot_member === null || !isset($bot_member["result"]["status"])) {
+            $this->logMessage("ERROR", "Could not check bot permissions in group: {$error}");
+            $this->sendMessage($chat_id, "I couldn't check the bot's permissions right now. Please try again later.");
+            return;
+        }
+
+        $bot_status = $bot_member["result"]["status"];
+        $is_admin = in_array($bot_status, ["creator", "administrator"], true);
+        $can_restrict = $is_admin && !empty($bot_member["result"]["can_restrict_members"]);
+        $delete_enabled = $group_settings[$chat_id] === true;
+        $can_delete = $is_admin && !empty($bot_member["result"]["can_delete_messages"]);
+        $group_name = $message["chat"]["title"] ?? "este grupo";
+
+        $diagnostic = "WikiVerifyBot diagnostics for {$group_name}\n" .
+            "• Bot is an administrator: " . ($is_admin ? "yes" : "no") . "\n" .
+            "• Can restrict new members: " . ($can_restrict ? "yes" : "no") . "\n" .
+            "• Deleting messages from restricted users: " .
+                ($delete_enabled
+                    ? ($can_delete ? "enabled and permitted" : "enabled, but the delete permission is missing")
+                    : "disabled");
+
+        $this->sendMessage($chat_id, $diagnostic);
+    }
+
+    /**
      * Register a channel when a channel post arrives after its membership update was missed.
      *
      * @param array $event The update event from Telegram.
@@ -235,6 +390,21 @@ class TelegramDaemon {
      */
     private function handleMessage($event, $group_settings, $restricted_users) {
         $this->logMessage("DEBUG", "Handling message event: " . json_encode($event));
+
+        if (!isset($event["message"]["chat"]["id"], $event["message"]["chat"]["type"])) {
+            return;
+        }
+
+        if ($event["message"]["chat"]["type"] === "private") {
+            $this->handlePrivateMessage($event["message"]);
+            return;
+        }
+
+        $this->handleGroupCommand($event["message"], $group_settings);
+
+        if (!isset($event["message"]["from"]["id"])) {
+            return;
+        }
 
         $message_user_id = $event["message"]["from"]["id"];
         $message_id = $event["message"]["message_id"];

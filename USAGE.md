@@ -16,6 +16,7 @@
 - **Important:** Set the bot as an **administrator**. It needs admin rights to restrict/unrestrict users and delete join notifications.
 
 ### 2. How Users Can Verify Themselves
+- In a private chat with the bot, `/start` and `/help` show instructions, `/verify` opens the verification website, and `/status` privately shows whether the Telegram account is linked to a Wikimedia account and when it was verified.
 - Users should follow the instructions provided in the group to verify their identity.
 - Verification is done via the website: [https://wikitelegram.toolforge.org/](https://wikitelegram.toolforge.org/)
 
@@ -26,6 +27,10 @@ To help new users, pin a message in your group chat with instructions and the ve
 > To participate in this group, you must verify your Wikimedia account.
 > Please visit: https://wikitelegram.toolforge.org/
 > After verification, you will be able to chat normally.
+
+### 4. Group Administrator Diagnostics
+- Group administrators can send `/verifybot status` in a managed group to check whether the bot is an administrator, can restrict new members, and has permission to delete messages when that feature is enabled.
+- The diagnostic is only shown to Telegram group administrators. If a permission is missing, promote the bot or adjust its administrator permissions in Telegram.
 
 ---
 
