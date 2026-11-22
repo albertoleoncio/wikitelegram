@@ -570,7 +570,14 @@ class TelegramDaemon {
         $new_user_id = $event["chat_member"]["new_chat_member"]["user"]["id"];
         $new_user = $event["chat_member"]["new_chat_member"]["user"]["username"] ?? '';
 
-        if ($this->queryUserDatabase($new_user_id)) {
+        $verification = $this->queryUserDatabase($new_user_id, $error);
+        if ($error !== null) {
+            $this->logMessage("ERROR", "Could not check verification for new member; update will be retried.");
+            sleep(15);
+            exit(1);
+        }
+
+        if ($verification !== null) {
             $this->logMessage("INFO", "User ${new_user_id} is already verified.");
             return; // User is already verified, no need to restrict
         }
@@ -593,12 +600,17 @@ class TelegramDaemon {
     }
 
     /**
-     * Query the user database to check if the user is already verified.
+     * Query the user database for a Telegram user's verification record.
      *
      * @param int $user_id The Telegram user ID to check.
-     * @return bool True if the user is verified, false otherwise.
+     * @param string|null $error Receives an error message if the lookup fails.
+     * @param bool $log_result Whether to log the verification result.
+     * @return array|null The verification record, or null if the user is unverified or the lookup fails.
      */
-    private function queryUserDatabase($user_id) {
+    private function queryUserDatabase($user_id, &$error = null, $log_result = true) {
+        $error = null;
+        $con = null;
+        $stmt = null;
         try {
             $ts_mycnf = $this->loadConfig("replica.my.cnf");
             $con = mysqli_connect(
@@ -611,29 +623,47 @@ class TelegramDaemon {
                 throw new Exception("Failed to connect to the database: " . mysqli_connect_error());
             }
 
-            $sql_user_id = mysqli_real_escape_string($con, $user_id);
-            $result = mysqli_query($con, "SELECT * FROM `verifications` WHERE `t_id` = '$sql_user_id' LIMIT 1");
+            $stmt = mysqli_prepare(
+                $con,
+                "SELECT `t_date`, `w_username`, `w_id` FROM `verifications` WHERE `t_id` = ? LIMIT 1"
+            );
+            if (!$stmt) {
+                throw new Exception("Database query could not be prepared: " . mysqli_error($con));
+            }
+            mysqli_stmt_bind_param($stmt, "i", $user_id);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
             if (!$result) {
-                throw new Exception("Database query failed: " . mysqli_error($con));
+                throw new Exception("Database query failed: " . mysqli_stmt_error($stmt));
             }
 
-            if (mysqli_num_rows($result) > 0) {
-                $row = mysqli_fetch_assoc($result);
-                $w_id = $row['w_id'];
-                if ($w_id != null) {
-                    $this->logMessage("INFO", "User ${user_id} already verified on wiki as ${w_id}.");
-                    return true; // User is already verified
+            $row = mysqli_fetch_assoc($result);
+            mysqli_stmt_close($stmt);
+            $stmt = null;
+            mysqli_close($con);
+            $con = null;
+            if (is_array($row) && $row['w_id'] !== null) {
+                if ($log_result) {
+                    $this->logMessage("INFO", "User ${user_id} already verified on wiki as {$row['w_id']}.");
                 }
+                return $row;
             }
 
-            $this->logMessage("INFO", "User ${user_id} is not verified.");
-            return false; // User is not verified
+            if ($log_result) {
+                $this->logMessage("INFO", "User ${user_id} is not verified.");
+            }
+            return null;
 
         } catch (Exception $e) {
             $this->logMessage("ERROR", "Database error: " . $e->getMessage());
-            $this->logMessage("INFO", "Retrying to connect in 15 seconds.");
-            sleep(15);
-            exit;
+            $error = $e->getMessage();
+            if ($stmt instanceof mysqli_stmt) {
+                mysqli_stmt_close($stmt);
+            }
+            if ($con instanceof mysqli) {
+                mysqli_close($con);
+            }
+            return null;
         }
     }
 
